@@ -1,0 +1,20 @@
+{
+  "name": "mrbaker-user",
+  "version": "1.0.0",
+  "description": "Desktop app for product browsing and purchase",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev"
+  },
+  "keywords": ["electron", "desktop", "shopping"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^27.0.0"
+  },
+  "dependencies": {
+    "electron-store": "^8.1.0"
+  }
+}
+

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cart - MR Baker</title>
+    <link rel="stylesheet" href="styles/cart.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="logo mr-baker-logo">
+                <span class="logo-text">MR. BAKER</span>
+            </div>
+            <div class="nav-right">
+                <button class="back-btn" id="backBtn">← Back to Products</button>
+                <button class="logout-btn" id="logoutBtn">Logout</button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="cart-content">
+            <div class="cart-items" id="cartItems">
+                <!-- Cart items will be loaded here -->
+            </div>
+
+            <div class="cart-summary">
+                <div class="summary-card">
+                    <h3>Order Summary</h3>
+                    <div class="summary-row">
+                        <span>Subtotal:</span>
+                        <span id="subtotal">₹0</span>
+                    </div>
+                    <div class="summary-row">
+                        <span>Tax (5%):</span>
+                        <span id="tax">₹0</span>
+                    </div>
+                    <div class="summary-row total">
+                        <span>Total:</span>
+                        <span id="total">₹0</span>
+                    </div>
+                    
+                    <!-- Customer Details Form -->
+                    <div class="customer-form" id="customerForm">
+                        <h4>Customer Details</h4>
+                        <div class="form-group">
+                            <label for="customerName">Customer Name *</label>
+                            <input type="text" id="customerName" name="customerName" placeholder="Enter customer name" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="paymentMethod">Payment Method *</label>
+                            <select id="paymentMethod" name="paymentMethod" required>
+                                <option value="">Select payment method</option>
+                                <option value="cash" selected>Cash</option>
+                                <option value="card">Card</option>
+                                <option value="upi">UPI</option>
+                                <option value="online">Online</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <button class="purchase-btn" id="purchaseBtn">Purchase & Print Bill</button>
+                    <button class="clear-btn" id="clearBtn">Clear Cart</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="billSection" class="bill-section" style="display: none;">
+            <div class="bill" id="billContent">
+                <!-- Bill content will be generated here -->
+            </div>
+        </div>
+    </div>
+
+    <script src="scripts/cart.js"></script>
+</body>
+</html>
+

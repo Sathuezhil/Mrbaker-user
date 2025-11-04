@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Products - MR Baker</title>
+    <link rel="stylesheet" href="styles/product.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="logo mr-baker-logo">
+                <span class="logo-text">MR. BAKER</span>
+            </div>
+            <div class="nav-right">
+                <button class="cart-btn" id="cartBtn">
+                    🛒 Cart <span id="cartCount">0</span>
+                </button>
+                <button class="logout-btn" id="logoutBtn">Logout</button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="header-section">
+            <h2>Our Products</h2>
+            <p>Select products to add to your cart</p>
+        </div>
+
+        <div class="products-grid" id="productsGrid">
+            <!-- Products will be loaded here -->
+        </div>
+    </div>
+
+    <script src="scripts/product.js"></script>
+</body>
+</html>
+
