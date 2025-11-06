@@ -41,25 +41,6 @@
                         <span id="total">₹0</span>
                     </div>
                     
-                    <!-- Customer Details Form -->
-                    <div class="customer-form" id="customerForm">
-                        <h4>Customer Details</h4>
-                        <div class="form-group">
-                            <label for="customerName">Customer Name *</label>
-                            <input type="text" id="customerName" name="customerName" placeholder="Enter customer name" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="paymentMethod">Payment Method *</label>
-                            <select id="paymentMethod" name="paymentMethod" required>
-                                <option value="">Select payment method</option>
-                                <option value="cash" selected>Cash</option>
-                                <option value="card">Card</option>
-                                <option value="upi">UPI</option>
-                                <option value="online">Online</option>
-                            </select>
-                        </div>
-                    </div>
-                    
                     <button class="purchase-btn" id="purchaseBtn">Purchase & Print Bill</button>
                     <button class="clear-btn" id="clearBtn">Clear Cart</button>
                 </div>
@@ -69,6 +50,24 @@
         <div id="billSection" class="bill-section" style="display: none;">
             <div class="bill" id="billContent">
                 <!-- Bill content will be generated here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Bill Preview Modal -->
+    <div id="billModal" class="bill-modal" style="display: none;">
+        <div class="modal-overlay"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Invoice Preview</h3>
+                <button class="modal-close" id="closeModal">&times;</button>
+            </div>
+            <div class="modal-body" id="modalBillContent">
+                <!-- Bill preview will be shown here -->
+            </div>
+            <div class="modal-footer">
+                <button class="print-btn" id="printBillBtn">🖨️ Print Bill</button>
+                <button class="cancel-btn" id="cancelBillBtn">Cancel</button>
             </div>
         </div>
     </div>

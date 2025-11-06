@@ -17,6 +17,7 @@ window.addEventListener('DOMContentLoaded', () => {
     loadCart();
     renderCart();
     setupEventListeners();
+    setupModalListeners();
 });
 
 function loadCart() {
@@ -46,31 +47,37 @@ function renderCart() {
 
     document.getElementById('purchaseBtn').disabled = false;
     
-    cartItems.innerHTML = cart.items.map((item) => {
+    cartItems.innerHTML = cart.items.map((item, index) => {
         const product = item.productId;
         const emoji = product.emoji || '🍞';
-        const name = product.name || 'Product';
+        let name = product.name || 'Product';
+        // Add size to name if available
+        if (item.selectedSize) {
+            name += ` (${item.selectedSize})`;
+        }
         const price = product.price || 0;
         const quantity = item.quantity || 1;
         const productId = product.id;
+        // Create unique identifier for items with size
+        const itemId = item.selectedSize ? `${productId}_${item.selectedSize}` : productId;
 
         return `
-            <div class="cart-item">
+            <div class="cart-item" data-item-id="${itemId}">
                 <div class="item-info">
                     <div class="item-emoji">${emoji}</div>
                     <div class="item-details">
                         <div class="item-name">${name}</div>
-                        <div class="item-price">₹${price} each</div>
+                        <div class="item-price">₹${price.toFixed(2)} each</div>
                     </div>
                 </div>
                 <div class="item-controls">
                     <div class="quantity-control">
-                        <button class="qty-btn" onclick="updateQuantity('${productId}', ${quantity - 1})">-</button>
+                        <button class="qty-btn" onclick="updateQuantity('${itemId}', ${quantity - 1})">-</button>
                         <span class="quantity">${quantity}</span>
-                        <button class="qty-btn" onclick="updateQuantity('${productId}', ${quantity + 1})">+</button>
+                        <button class="qty-btn" onclick="updateQuantity('${itemId}', ${quantity + 1})">+</button>
                     </div>
                     <div class="item-total">₹${(price * quantity).toFixed(2)}</div>
-                    <button class="remove-btn" onclick="removeItem('${productId}')">Remove</button>
+                    <button class="remove-btn" onclick="removeItem('${itemId}')">Remove</button>
                 </div>
             </div>
         `;
@@ -79,22 +86,47 @@ function renderCart() {
     updateSummary();
 }
 
-function updateQuantity(productId, newQuantity) {
+function updateQuantity(itemId, newQuantity) {
+    // itemId can be productId or productId_size for items with size
+    const [productId, size] = itemId.includes('_') ? itemId.split('_') : [itemId, null];
+    
     if (newQuantity <= 0) {
-        cart.items = cart.items.filter(item => item.productId.id !== productId);
+        if (size) {
+            cart.items = cart.items.filter(item => 
+                !(item.productId.id === productId && item.selectedSize === size)
+            );
+        } else {
+            cart.items = cart.items.filter(item => 
+                item.productId.id !== productId && !item.selectedSize
+            );
+        }
     } else {
-        const item = cart.items.find(item => item.productId.id === productId);
+        const item = cart.items.find(item => {
+            const sameProduct = item.productId.id === productId;
+            const sameSize = size ? item.selectedSize === size : !item.selectedSize;
+            return sameProduct && sameSize;
+        });
         if (item) {
             item.quantity = newQuantity;
         }
     }
-    
     saveCart();
     renderCart();
 }
 
-function removeItem(productId) {
-    cart.items = cart.items.filter(item => item.productId.id !== productId);
+function removeItem(itemId) {
+    // itemId can be productId or productId_size for items with size
+    const [productId, size] = itemId.includes('_') ? itemId.split('_') : [itemId, null];
+    
+    if (size) {
+        cart.items = cart.items.filter(item => 
+            !(item.productId.id === productId && item.selectedSize === size)
+        );
+    } else {
+        cart.items = cart.items.filter(item => 
+            item.productId.id !== productId && !item.selectedSize
+        );
+    }
     saveCart();
     renderCart();
 }
@@ -127,23 +159,7 @@ function setupEventListeners() {
             return;
         }
         
-        // Validate form before generating bill
-        const customerName = document.getElementById('customerName').value.trim();
-        const paymentMethod = document.getElementById('paymentMethod').value;
-        
-        if (!customerName) {
-            alert('Please enter customer name');
-            document.getElementById('customerName').focus();
-            return;
-        }
-        
-        if (!paymentMethod) {
-            alert('Please select payment method');
-            document.getElementById('paymentMethod').focus();
-            return;
-        }
-        
-        generateBill(customerName, paymentMethod);
+        generateBill();
     });
 
     document.getElementById('clearBtn').addEventListener('click', () => {
@@ -151,9 +167,6 @@ function setupEventListeners() {
             cart = { items: [] };
             saveCart();
             renderCart();
-            // Reset form
-            document.getElementById('customerName').value = '';
-            document.getElementById('paymentMethod').value = 'cash';
         }
     });
 
@@ -167,7 +180,7 @@ function setupEventListeners() {
     });
 }
 
-function generateBill(customerName, paymentMethod) {
+function generateBill() {
     const purchaseBtn = document.getElementById('purchaseBtn');
     purchaseBtn.disabled = true;
     purchaseBtn.textContent = 'Processing...';
@@ -179,16 +192,20 @@ function generateBill(customerName, paymentMethod) {
     const total = subtotal + tax;
 
     const order = {
-        customerName: customerName,
-        paymentMethod: paymentMethod,
         username: currentUser.username,
-        items: cart.items.map(item => ({
-            productName: item.productId.name,
-            productEmoji: item.productId.emoji || '🍞',
-            quantity: item.quantity,
-            price: item.productId.price,
-            total: item.productId.price * item.quantity
-        })),
+        items: cart.items.map(item => {
+            let productName = item.productId.name;
+            if (item.selectedSize) {
+                productName += ` (${item.selectedSize})`;
+            }
+            return {
+                productName: productName,
+                productEmoji: item.productId.emoji || '🍞',
+                quantity: item.quantity,
+                price: item.productId.price,
+                total: item.productId.price * item.quantity
+            };
+        }),
         subtotal: subtotal,
         tax: tax,
         total: total,
@@ -206,7 +223,8 @@ function generateBill(customerName, paymentMethod) {
         hour12: true
     });
 
-    const billContent = `
+    // Bill content without buttons (for modal preview)
+    const billContentWithoutButtons = `
         <div class="bill-header">
             <div class="mr-baker-logo">
                 <span class="logo-text">MR. BAKER</span>
@@ -214,10 +232,8 @@ function generateBill(customerName, paymentMethod) {
             <p>Invoice</p>
         </div>
         <div class="bill-info">
-            <p><strong>Customer:</strong> ${order.customerName}</p>
             <p><strong>Date:</strong> ${date}</p>
             <p><strong>Invoice #:</strong> ${order.invoiceNumber}</p>
-            <p><strong>Payment Method:</strong> ${order.paymentMethod.toUpperCase()}</p>
         </div>
         <hr class="bill-divider">
         <div class="bill-items">
@@ -250,35 +266,102 @@ function generateBill(customerName, paymentMethod) {
             <span><strong>₹${order.total.toFixed(2)}</strong></span>
         </div>
         <div class="bill-footer">
-            <p>Payment Method: <strong>${order.paymentMethod.toUpperCase()}</strong></p>
             <p>Thank you for your purchase!</p>
         </div>
+    `;
+
+    // Bill content with buttons (for printing)
+    const billContentWithButtons = billContentWithoutButtons + `
         <div class="bill-actions">
             <button class="print-btn" onclick="window.print()">🖨️ Print Bill</button>
             <button class="back-btn" onclick="window.location.href='product.html'">Continue Shopping</button>
         </div>
     `;
 
-    document.getElementById('billContent').innerHTML = billContent;
-    document.getElementById('billSection').style.display = 'block';
-    document.getElementById('billSection').scrollIntoView({ behavior: 'smooth' });
-
-    // Clear cart after bill generation
-    cart = { items: [] };
-    saveCart();
-    renderCart();
+    // Show bill in modal (without buttons - modal has its own footer buttons)
+    document.getElementById('modalBillContent').innerHTML = billContentWithoutButtons;
+    document.getElementById('billModal').style.display = 'flex';
     
-    // Reset form
-    document.getElementById('customerName').value = '';
-    document.getElementById('paymentMethod').value = 'cash';
+    // Save full bill with buttons to billSection for printing (but hide it on page)
+    document.getElementById('billContent').innerHTML = billContentWithButtons;
+    document.getElementById('billSection').style.display = 'none'; // Hide from page, only show when printing
 
     purchaseBtn.disabled = false;
     purchaseBtn.textContent = 'Purchase & Print Bill';
+}
+
+// Setup modal listeners once on page load
+let modalListenersSetup = false;
+
+function setupModalListeners() {
+    if (modalListenersSetup) return; // Prevent duplicate listeners
     
-    // Auto print after a short delay
-    setTimeout(() => {
-        window.print();
-    }, 500);
+    const modal = document.getElementById('billModal');
+    const closeModal = document.getElementById('closeModal');
+    const cancelBtn = document.getElementById('cancelBillBtn');
+    const printBtn = document.getElementById('printBillBtn');
+    
+    if (!modal || !closeModal || !cancelBtn || !printBtn) return;
+    
+    // Close modal handlers
+    const closeModalHandler = () => {
+        modal.style.display = 'none';
+        // Always hide bill section from page - only show in modal
+        document.getElementById('billSection').style.display = 'none';
+        // Clear cart after closing modal (if user doesn't print)
+        cart = { items: [] };
+        saveCart();
+        renderCart();
+    };
+    
+    closeModal.addEventListener('click', closeModalHandler);
+    cancelBtn.addEventListener('click', closeModalHandler);
+    
+    // Close on overlay click
+    modal.querySelector('.modal-overlay').addEventListener('click', closeModalHandler);
+    
+    // Print button handler
+    printBtn.addEventListener('click', () => {
+        // Save full bill with buttons to billSection for printing
+        const billSection = document.getElementById('billSection');
+        
+        // Close modal first
+        modal.style.display = 'none';
+        
+        // Make bill section available for print (but keep it off-screen on page)
+        billSection.style.display = 'block';
+        billSection.style.position = 'absolute';
+        billSection.style.left = '-9999px';
+        billSection.style.top = '-9999px';
+        billSection.style.visibility = 'visible';
+        
+        // Clear cart before printing
+        cart = { items: [] };
+        saveCart();
+        renderCart();
+        
+        // Print directly - bill will show in print preview
+        setTimeout(() => {
+            window.print();
+        }, 200);
+        
+        // After printing, hide bill section from page
+        window.addEventListener('afterprint', () => {
+            billSection.style.display = 'none';
+            billSection.style.visibility = 'hidden';
+            billSection.style.position = 'absolute';
+            billSection.style.left = '-9999px';
+            billSection.style.top = '-9999px';
+        }, { once: true });
+        
+        // Fallback: hide after delay
+        setTimeout(() => {
+            billSection.style.display = 'none';
+            billSection.style.visibility = 'hidden';
+        }, 2000);
+    });
+    
+    modalListenersSetup = true;
 }
 
 window.updateQuantity = updateQuantity;
