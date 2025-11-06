@@ -10,7 +10,7 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
-      webSecurity: true // Enable web security for CORS
+      webSecurity: false // Disable web security to allow all image types and cross-origin images
     },
     icon: path.join(__dirname, 'assets', 'icon.png'),
     titleBarStyle: 'default',
