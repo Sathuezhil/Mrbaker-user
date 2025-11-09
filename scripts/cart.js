@@ -1,8 +1,14 @@
 let cart = { items: [] };
 let currentUser = null;
+let paymentMethodSelect = null;
 
 window.addEventListener('DOMContentLoaded', () => {
-    const userStr = localStorage.getItem('user');
+    // Clear any legacy login persistence so a fresh app launch requires authentication
+    if (localStorage.getItem('user')) {
+        localStorage.removeItem('user');
+    }
+
+    const userStr = sessionStorage.getItem('user');
     if (!userStr) {
         window.location.href = 'index.html';
         return;
@@ -13,6 +19,8 @@ window.addEventListener('DOMContentLoaded', () => {
         window.location.href = 'index.html';
         return;
     }
+
+    paymentMethodSelect = document.getElementById('paymentMethod');
 
     loadCart();
     renderCart();
@@ -153,20 +161,36 @@ function updateSummary() {
 }
 
 function setupEventListeners() {
-    document.getElementById('purchaseBtn').addEventListener('click', () => {
+    const purchaseBtnEl = document.getElementById('purchaseBtn');
+    const clearBtnEl = document.getElementById('clearBtn');
+
+    purchaseBtnEl.addEventListener('click', () => {
         if (!cart || !cart.items || cart.items.length === 0) {
             alert('Your cart is empty. Please add products first.');
             return;
         }
-        
-        generateBill();
+
+        const selectedPaymentMethod = paymentMethodSelect ? paymentMethodSelect.value : '';
+        if (!selectedPaymentMethod) {
+            if (paymentMethodSelect) {
+                paymentMethodSelect.classList.add('input-error');
+                setTimeout(() => paymentMethodSelect.classList.remove('input-error'), 1500);
+            }
+            alert('Please select a payment method before completing the purchase.');
+            return;
+        }
+
+        generateBill(selectedPaymentMethod);
     });
 
-    document.getElementById('clearBtn').addEventListener('click', () => {
+    clearBtnEl.addEventListener('click', () => {
         if (confirm('Are you sure you want to clear the cart?')) {
             cart = { items: [] };
             saveCart();
             renderCart();
+            if (paymentMethodSelect) {
+                paymentMethodSelect.value = '';
+            }
         }
     });
 
@@ -175,12 +199,12 @@ function setupEventListeners() {
     });
 
     document.getElementById('logoutBtn').addEventListener('click', () => {
-        localStorage.removeItem('user');
+        sessionStorage.removeItem('user');
         window.location.href = 'index.html';
     });
 }
 
-function generateBill() {
+function generateBill(paymentMethod) {
     const purchaseBtn = document.getElementById('purchaseBtn');
     purchaseBtn.disabled = true;
     purchaseBtn.textContent = 'Processing...';
@@ -209,6 +233,7 @@ function generateBill() {
         subtotal: subtotal,
         tax: tax,
         total: total,
+        paymentMethod: paymentMethod,
         orderDate: new Date().toISOString(),
         invoiceNumber: `INV-${Date.now()}`
     };
@@ -235,6 +260,7 @@ function generateBill() {
             <p><strong>Date:</strong> ${date}</p>
             <p><strong>Invoice #:</strong> ${order.invoiceNumber}</p>
         </div>
+        <p><strong>Payment Method:</strong> ${order.paymentMethod}</p>
         <hr class="bill-divider">
         <div class="bill-items">
             <div class="bill-item-header">
@@ -288,6 +314,9 @@ function generateBill() {
 
     purchaseBtn.disabled = false;
     purchaseBtn.textContent = 'Purchase & Print Bill';
+    if (paymentMethodSelect) {
+        paymentMethodSelect.value = '';
+    }
 }
 
 // Setup modal listeners once on page load
@@ -312,6 +341,9 @@ function setupModalListeners() {
         cart = { items: [] };
         saveCart();
         renderCart();
+        if (paymentMethodSelect) {
+            paymentMethodSelect.value = '';
+        }
     };
     
     closeModal.addEventListener('click', closeModalHandler);
@@ -339,6 +371,9 @@ function setupModalListeners() {
         cart = { items: [] };
         saveCart();
         renderCart();
+        if (paymentMethodSelect) {
+            paymentMethodSelect.value = '';
+        }
         
         // Print directly - bill will show in print preview
         setTimeout(() => {
@@ -352,12 +387,18 @@ function setupModalListeners() {
             billSection.style.position = 'absolute';
             billSection.style.left = '-9999px';
             billSection.style.top = '-9999px';
+            if (paymentMethodSelect) {
+                paymentMethodSelect.value = '';
+            }
         }, { once: true });
         
         // Fallback: hide after delay
         setTimeout(() => {
             billSection.style.display = 'none';
             billSection.style.visibility = 'hidden';
+            if (paymentMethodSelect) {
+                paymentMethodSelect.value = '';
+            }
         }, 2000);
     });
     
