@@ -79,7 +79,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
             // Still save user data even if branch-id not found, might be in user data
             console.warn('Branch ID not found in expected locations, checking full response...');
             // Save full response for debugging
-            localStorage.setItem('lastLoginResponse', JSON.stringify(data));
+            sessionStorage.setItem('lastLoginResponse', JSON.stringify(data));
             throw new Error('Branch ID not found in login response. Check console for details.');
         }
 
@@ -99,7 +99,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
             userData: data // Store full response for future use
         };
         
-        localStorage.setItem('user', JSON.stringify(userData));
+        sessionStorage.setItem('user', JSON.stringify(userData));
         console.log('User data saved:', userData);
         
         // Redirect to products page
@@ -122,7 +122,15 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
 
 // Check if already logged in
 document.addEventListener('DOMContentLoaded', () => {
-    const user = localStorage.getItem('user');
+    // Clear any persisted login state from previous app sessions
+    if (localStorage.getItem('user')) {
+        localStorage.removeItem('user');
+    }
+    if (localStorage.getItem('lastLoginResponse')) {
+        localStorage.removeItem('lastLoginResponse');
+    }
+
+    const user = sessionStorage.getItem('user');
     if (user && JSON.parse(user).loggedIn) {
         window.location.href = 'product.html';
         return;

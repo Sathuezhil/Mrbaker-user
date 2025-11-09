@@ -291,6 +291,44 @@ body {
     border-top: 2px solid #e0e0e0;
 }
 
+.payment-section {
+    margin-top: 25px;
+    padding: 18px;
+    border: 2px dashed rgba(246, 161, 33, 0.3);
+    border-radius: 12px;
+    background: rgba(246, 161, 33, 0.08);
+}
+
+.payment-section label {
+    display: block;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 10px;
+    font-size: 0.95em;
+}
+
+.payment-section select {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 1em;
+    font-family: inherit;
+    background: white;
+    transition: all 0.3s ease;
+}
+
+.payment-section select:focus {
+    outline: none;
+    border-color: #F6A121;
+    box-shadow: 0 0 0 3px rgba(246, 161, 33, 0.2);
+}
+
+.input-error {
+    border-color: #ff4757 !important;
+    box-shadow: 0 0 0 3px rgba(255, 71, 87, 0.25) !important;
+}
+
 /* Customer Form Styles */
 .customer-form {
     margin-top: 25px;

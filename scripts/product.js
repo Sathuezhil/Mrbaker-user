@@ -5,7 +5,12 @@ let currentUser = null;
 
 // Check login and load products
 window.addEventListener('DOMContentLoaded', async () => {
-    const userStr = localStorage.getItem('user');
+    // Clear legacy persisted login state so a fresh app launch always asks for credentials
+    if (localStorage.getItem('user')) {
+        localStorage.removeItem('user');
+    }
+
+    const userStr = sessionStorage.getItem('user');
     if (!userStr) {
         window.location.href = 'index.html';
         return;
@@ -19,7 +24,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 
     if (!currentUser.branchId) {
         alert('Branch ID not found. Please login again.');
-        localStorage.removeItem('user');
+        sessionStorage.removeItem('user');
         window.location.href = 'index.html';
         return;
     }
@@ -366,6 +371,6 @@ document.getElementById('cartBtn').addEventListener('click', () => {
 });
 
 document.getElementById('logoutBtn').addEventListener('click', () => {
-    localStorage.removeItem('user');
+    sessionStorage.removeItem('user');
     window.location.href = 'index.html';
 });
