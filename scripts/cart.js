@@ -509,8 +509,8 @@ async function ensureStripeKeys() {
             },
             body: JSON.stringify({
                 branchId: branchId,
-                stripePublicKey: 'pk_test_51SFF7NRSKi9P4SsbBZEIzebwnEMiiqSGxfSANV7DJAOdz6WXOOWwLDV1E5ufTtluui9NJzz0fetEOrvxwJJ2lLEk00JOnDkjtv',
-                stripeSecretKey: 'sk_test_51SFF7NRSKi9P4SsbXBP7sIs2FC2rrbHPE5NuJ3uKEpi4YYZxALbnOOqW9QUPeeXBrvynjmqvNs1zk91iUYj6Smp700Eyh3dl5V'
+                stripePublicKey: 'pk_test_51SFF7NRSKi9P4SsbBZEIzebwnEMiiqSGxfSANV7DJAOdz6WXOOWwLDV1E5ufTtluui9NJzz0fetEOrvxwJJ2lLEk00JOnDkjtv'
+                // Note: stripeSecretKey should be configured securely on backend, not sent from frontend
             })
         });
 
