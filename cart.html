@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cart - MR Baker</title>
     <link rel="stylesheet" href="styles/cart.css">
+    <script src="https://js.stripe.com/v3/"></script>
 </head>
 <body>
     <nav class="navbar">
@@ -45,10 +46,36 @@
                     <select id="paymentMethod">
                         <option value="">Select payment method</option>
                         <option value="Cash">Cash</option>
-                        <option value="Card">Card</option>
                         <option value="UPI">UPI</option>
                         <option value="Wallet">Wallet</option>
+                        <option value="Stripe Card">Stripe Card</option>
                     </select>
+                    
+                    <!-- Stripe Card Form (shown when Stripe Card is selected) -->
+                    <div id="stripeCardForm" class="stripe-card-form" style="display: none;">
+                        <div class="stripe-field-group">
+                            <label for="cardNumber">Card Number</label>
+                            <div id="stripeCardNumber" class="stripe-card-element">
+                                <!-- Stripe Elements will create card number input here -->
+                            </div>
+                        </div>
+                        <div class="stripe-field-row">
+                            <div class="stripe-field-group">
+                                <label for="cardExpiry">Expiry Date (MM/YY)</label>
+                                <div id="stripeCardExpiry" class="stripe-card-element">
+                                    <!-- Stripe Elements will create expiry input here -->
+                                </div>
+                            </div>
+                            <div class="stripe-field-group">
+                                <label for="cardCvc">CVV</label>
+                                <div id="stripeCardCvc" class="stripe-card-element">
+                                    <!-- Stripe Elements will create CVV input here -->
+                                </div>
+                            </div>
+                        </div>
+                        <div id="stripeCardErrors" class="stripe-card-errors" role="alert"></div>
+                        <button type="button" id="addCardBtn" class="add-card-btn">Add Card</button>
+                    </div>
                 </div>
                     
                     <button class="purchase-btn" id="purchaseBtn">Purchase & Print Bill</button>
