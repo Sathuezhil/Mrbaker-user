@@ -329,6 +329,114 @@ body {
     box-shadow: 0 0 0 3px rgba(255, 71, 87, 0.25) !important;
 }
 
+/* Stripe Card Form Styles */
+.stripe-card-form {
+    margin-top: 15px;
+    padding: 15px;
+    background: white;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+}
+
+.test-card-info {
+    background: #f0f8ff;
+    border: 1px dashed #4a90e2;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 15px;
+    font-size: 0.85em;
+}
+
+.test-card-info strong {
+    display: block;
+    color: #1e3a8a;
+    margin-bottom: 8px;
+    font-size: 0.9em;
+}
+
+.test-card-list {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.test-card-item {
+    color: #333;
+    font-size: 0.85em;
+    padding: 3px 0;
+}
+
+.test-card-item strong {
+    display: inline;
+    color: #1e3a8a;
+    margin-right: 5px;
+}
+
+.stripe-field-group {
+    margin-bottom: 15px;
+}
+
+.stripe-field-group label {
+    display: block;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 8px;
+    font-size: 0.9em;
+}
+
+.stripe-field-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+}
+
+.stripe-card-element {
+    padding: 12px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    background: white;
+    transition: all 0.3s ease;
+    min-height: 44px;
+}
+
+.stripe-card-element:focus-within {
+    border-color: #F6A121;
+    box-shadow: 0 0 0 3px rgba(246, 161, 33, 0.1);
+}
+
+.stripe-card-errors {
+    color: #ff4757;
+    font-size: 0.9em;
+    margin-top: 10px;
+    min-height: 20px;
+    display: none;
+}
+
+.add-card-btn {
+    width: 100%;
+    padding: 10px;
+    margin-top: 12px;
+    background: linear-gradient(135deg, #F6A121 0%, #E8951F 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.95em;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.add-card-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(246, 161, 33, 0.3);
+}
+
+.add-card-btn:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+    transform: none;
+}
+
 /* Customer Form Styles */
 .customer-form {
     margin-top: 25px;

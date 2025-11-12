@@ -7,14 +7,18 @@
     "start": "electron .",
     "dev": "electron . --dev"
   },
-  "keywords": ["electron", "desktop", "shopping"],
+  "keywords": [
+    "electron",
+    "desktop",
+    "shopping"
+  ],
   "author": "",
   "license": "MIT",
   "devDependencies": {
     "electron": "^27.0.0"
   },
   "dependencies": {
+    "@stripe/stripe-js": "^8.4.0",
     "electron-store": "^8.1.0"
   }
 }
-
