@@ -68,6 +68,22 @@ body {
     align-items: center;
 }
 
+.user-info {
+    display: flex;
+    align-items: center;
+    padding: 8px 15px;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    color: white;
+    font-size: 0.95em;
+    font-weight: 600;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+}
+
+.user-info #branchName {
+    color: white;
+}
+
 .cart-btn, .logout-btn {
     padding: 10px 20px;
     border: none;
@@ -111,7 +127,49 @@ body {
 
 .container {
     width: 100%;
-    padding: 30px 20px;
+    padding: 30px 10px;
+}
+
+.category-filter {
+    margin-bottom: 25px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 15px 20px;
+    background: white;
+    border-radius: 0;
+    box-shadow: none;
+    margin-left: 0;
+    margin-right: 0;
+}
+
+.category-filter label {
+    font-weight: 600;
+    color: #333;
+    font-size: 1em;
+}
+
+.category-select {
+    flex: 1;
+    max-width: 300px;
+    padding: 10px 15px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 1em;
+    font-family: inherit;
+    background: white;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.category-select:focus {
+    outline: none;
+    border-color: #F6A121;
+    box-shadow: 0 0 0 3px rgba(246, 161, 33, 0.1);
+}
+
+.category-select:hover {
+    border-color: #F6A121;
 }
 
 .header-section {
@@ -136,6 +194,7 @@ body {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 25px;
+    padding: 0;
 }
 
 .product-card {

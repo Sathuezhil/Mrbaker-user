@@ -564,10 +564,10 @@ function setupStripeCardElement() {
     const style = {
         base: {
             fontSize: '16px',
-            color: '#32325d',
+            color: '#333333',
             fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif',
             '::placeholder': {
-                color: '#aab7c4'
+                color: '#999999'
             }
         },
         invalid: {
@@ -709,45 +709,7 @@ async function processStripePayment() {
 
             // Payment method creation means card is valid
             // Save payment record to backend
-            const userToken = currentUser.token;
-            const userId = currentUser.id;
-            
-            // Save payment to backend using Payment model
-            try {
-                const paymentResponse = await fetch('https://api.mr-bakers.com/api/payments', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': userToken ? `Bearer ${userToken}` : '',
-                        'Accept': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        user: userId,
-                        method: 'Stripe Card',
-                        amount: total,
-                        date: new Date().toISOString(),
-                        paymentMethodId: paymentMethodId,
-                        orderItems: cart.items.map(item => ({
-                            productId: item.productId.id,
-                            productName: item.productId.name + (item.selectedSize ? ` (${item.selectedSize})` : ''),
-                            quantity: item.quantity,
-                            price: item.productId.price
-                        })),
-                        subtotal: subtotal,
-                        tax: tax
-                    })
-                });
-
-                if (!paymentResponse.ok) {
-                    console.warn('Failed to save payment record, but payment succeeded');
-                } else {
-                    const paymentData = await paymentResponse.json();
-                    console.log('Payment record saved:', paymentData);
-                }
-            } catch (saveError) {
-                console.error('Error saving payment record:', saveError);
-                // Continue even if payment record save fails
-            }
+            await savePaymentRecord('Stripe Card');
 
             // Payment successful - generate bill
             generateBill('Stripe Card');
@@ -804,15 +766,7 @@ async function savePaymentRecord(paymentMethod) {
                 user: userId,
                 method: paymentMethod,
                 amount: total,
-                date: new Date().toISOString(),
-                orderItems: cart.items.map(item => ({
-                    productId: item.productId.id,
-                    productName: item.productId.name + (item.selectedSize ? ` (${item.selectedSize})` : ''),
-                    quantity: item.quantity,
-                    price: item.productId.price
-                })),
-                subtotal: subtotal,
-                tax: tax
+                date: new Date().toISOString()
             })
         });
 

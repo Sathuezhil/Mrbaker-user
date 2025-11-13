@@ -374,6 +374,8 @@ body {
 
 .stripe-field-group {
     margin-bottom: 15px;
+    display: flex;
+    flex-direction: column;
 }
 
 .stripe-field-group label {
@@ -382,12 +384,26 @@ body {
     color: #333;
     margin-bottom: 8px;
     font-size: 0.9em;
+    line-height: 1.2;
+}
+
+.stripe-field-row .stripe-field-group label {
+    height: 24px;
+    display: flex;
+    align-items: flex-end;
 }
 
 .stripe-field-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 15px;
+    align-items: start;
+}
+
+.stripe-field-row .stripe-field-group {
+    margin-bottom: 0;
+    display: flex;
+    flex-direction: column;
 }
 
 .stripe-card-element {
@@ -397,6 +413,22 @@ body {
     background: white;
     transition: all 0.3s ease;
     min-height: 44px;
+}
+
+.stripe-field-row .stripe-card-element {
+    height: 44px;
+    min-height: 44px;
+}
+
+/* Ensure Stripe Elements iframe is visible */
+.stripe-card-element iframe {
+    width: 100% !important;
+    height: 100% !important;
+}
+
+.stripe-card-element .__PrivateStripeElement {
+    width: 100% !important;
+    height: 100% !important;
 }
 
 .stripe-card-element:focus-within {
