@@ -21,10 +21,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
     errorMessage.classList.remove('show');
     
     try {
-        // Make login API request with identifier and password
-        // Backend accepts 'identifier' which can be: username, email, or phone
-        // Based on User schema: username (sparse), email (required), phone (required, Number)
-        // JSON.stringify automatically handles proper JSON formatting with quotes
+       
         const requestBody = {
             identifier: String(username).trim(),
             password: String(password).trim()

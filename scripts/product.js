@@ -1,5 +1,7 @@
 // Products data - fetched from API
 let products = [];
+let allProducts = []; // Store all products for filtering
+let categories = [];
 let cart = { items: [] };
 let currentUser = null;
 
@@ -30,9 +32,106 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
 
     loadCart();
+    await fetchBranchInfo();
+    await fetchCategories();
     await fetchProducts();
     updateCartCount();
+    setupCategoryFilter();
 });
+
+// Fetch branch information from API
+async function fetchBranchInfo() {
+    try {
+        const branchId = currentUser.branchId;
+        if (!branchId) {
+            document.getElementById('branchName').textContent = '';
+            return;
+        }
+
+        const response = await fetch('https://api.mr-bakers.com/api/branch', {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            const branches = data.data || [];
+            // Find branch that matches the current user's branchId
+            const branch = branches.find(b => b._id === branchId);
+            if (branch && branch.name) {
+                document.getElementById('branchName').textContent = branch.name;
+            } else {
+                document.getElementById('branchName').textContent = '';
+            }
+        } else {
+            document.getElementById('branchName').textContent = '';
+        }
+    } catch (error) {
+        console.error('Error fetching branch info:', error);
+        document.getElementById('branchName').textContent = '';
+    }
+}
+
+// Fetch categories from API
+async function fetchCategories() {
+    try {
+        const response = await fetch('https://api.mr-bakers.com/api/categories', {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            categories = data.data || [];
+            populateCategorySelector();
+        }
+    } catch (error) {
+        console.error('Error fetching categories:', error);
+    }
+}
+
+// Populate category selector dropdown
+function populateCategorySelector() {
+    const categorySelect = document.getElementById('categorySelect');
+    if (!categorySelect) return;
+
+    // Clear existing options except "All Categories"
+    categorySelect.innerHTML = '<option value="">All Categories</option>';
+
+    // Add category options
+    categories.forEach(category => {
+        const option = document.createElement('option');
+        option.value = category._id;
+        option.textContent = category.name;
+        categorySelect.appendChild(option);
+    });
+}
+
+// Setup category filter event listener
+function setupCategoryFilter() {
+    const categorySelect = document.getElementById('categorySelect');
+    if (categorySelect) {
+        categorySelect.addEventListener('change', (e) => {
+            filterProductsByCategory(e.target.value);
+        });
+    }
+}
+
+// Filter products by category
+function filterProductsByCategory(categoryId) {
+    if (!categoryId || categoryId === '') {
+        products = [...allProducts];
+    } else {
+        products = allProducts.filter(product => {
+            return product.category && product.category._id === categoryId;
+        });
+    }
+    renderProducts();
+}
 
 // Helper function to extract products from API response
 function extractProductsFromResponse(data) {
@@ -118,25 +217,15 @@ async function fetchProducts() {
         // Process Foods API response
         if (foodsResponse.status === 'fulfilled' && foodsResponse.value.ok) {
             const foodsData = await foodsResponse.value.json();
-            console.log('Foods API Response:', foodsData);
             const foodsProducts = extractProductsFromResponse(foodsData);
             allProductsData = allProductsData.concat(foodsProducts);
-        } else if (foodsResponse.status === 'fulfilled' && !foodsResponse.value.ok) {
-            console.warn('Foods API error:', foodsResponse.value.status);
-        } else {
-            console.warn('Foods API failed:', foodsResponse.reason);
         }
 
         // Process Beverage API response
         if (beverageResponse.status === 'fulfilled' && beverageResponse.value.ok) {
             const beverageData = await beverageResponse.value.json();
-            console.log('Beverage API Response:', beverageData);
             const beverageProducts = extractProductsFromResponse(beverageData);
             allProductsData = allProductsData.concat(beverageProducts);
-        } else if (beverageResponse.status === 'fulfilled' && !beverageResponse.value.ok) {
-            console.warn('Beverage API error:', beverageResponse.value.status);
-        } else {
-            console.warn('Beverage API failed:', beverageResponse.reason);
         }
 
         if (allProductsData.length === 0) {
@@ -145,9 +234,8 @@ async function fetchProducts() {
         }
 
         // Process all products
-        products = processProductItems(allProductsData);
-
-        console.log('Processed Products:', products);
+        allProducts = processProductItems(allProductsData);
+        products = [...allProducts];
 
         if (products.length === 0) {
             productsGrid.innerHTML = '<div class="loading">No products available</div>';
@@ -174,29 +262,25 @@ function renderProducts() {
     const productsGrid = document.getElementById('productsGrid');
     productsGrid.innerHTML = '';
 
+    if (products.length === 0) {
+        productsGrid.innerHTML = '<div class="loading">No products found in this category</div>';
+        return;
+    }
+
     products.forEach(product => {
         const productCard = document.createElement('div');
         productCard.className = 'product-card';
         
-        // Build image HTML - always show image if URL exists
-        // Support all image formats: jpg, jpeg, png, gif, webp, svg, bmp, ico, etc.
-        // Also support placeholder URLs like via.placeholder.com
         let imageHtml = '';
         if (product.image && product.image.trim() !== '') {
-            // Always try to display the image - placeholder is behind it as fallback
-            // Allow all image types - no file type restrictions (jpg, jpeg, png, gif, webp, svg, bmp, ico, etc.)
-            // Image should be visible by default, only hide on actual error
             const imageUrl = product.image.trim();
-            console.log(`Loading image for ${product.name}:`, imageUrl);
             imageHtml = `
                 <div class="product-image-placeholder" style="display: none;"><span>📷</span><span>No Image</span></div>
                 <img src="${imageUrl}" alt="${product.name}" class="product-image-img" 
-                     onload="console.log('Image loaded successfully:', '${imageUrl}'); this.style.display='block';"
-                     onerror="console.error('Image failed to load:', '${imageUrl}'); this.onerror=null; this.style.display='none'; const placeholder = this.previousElementSibling; if(placeholder) placeholder.style.display='flex';">
+                     onload="this.style.display='block';"
+                     onerror="this.onerror=null; this.style.display='none'; const placeholder = this.previousElementSibling; if(placeholder) placeholder.style.display='flex';">
             `;
         } else {
-            // No image URL - show placeholder directly
-            console.log(`No image URL for product: ${product.name}`);
             imageHtml = `<div class="product-image-placeholder"><span>📷</span><span>No Image</span></div>`;
         }
         

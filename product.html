@@ -17,16 +17,20 @@
                     🛒 Cart <span id="cartCount">0</span>
                 </button>
                 <button class="logout-btn" id="logoutBtn">Logout</button>
+                <div class="user-info" id="userInfo">
+                    <span id="branchName"></span>
+                </div>
             </div>
         </div>
     </nav>
 
     <div class="container">
-        <div class="header-section">
-            <h2>Our Products</h2>
-            <p>Select products to add to your cart</p>
+        <div class="category-filter">
+            <label for="categorySelect">Filter by Category:</label>
+            <select id="categorySelect" class="category-select">
+                <option value="">All Categories</option>
+            </select>
         </div>
-
         <div class="products-grid" id="productsGrid">
             <!-- Products will be loaded here -->
         </div>
