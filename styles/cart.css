@@ -21,9 +21,9 @@ body {
 }
 
 .nav-container {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 0 20px;
+    width: 100%;
+    margin: 0;
+    padding: 0 15px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -407,17 +407,18 @@ body {
 }
 
 .stripe-card-element {
-    padding: 12px;
+    padding: 8px 12px;
     border: 2px solid #e0e0e0;
     border-radius: 8px;
     background: white;
     transition: all 0.3s ease;
-    min-height: 44px;
+    height: 48px;
+    min-height: 48px;
 }
 
 .stripe-field-row .stripe-card-element {
-    height: 44px;
-    min-height: 44px;
+    height: 48px;
+    min-height: 48px;
 }
 
 /* Ensure Stripe Elements iframe is visible */

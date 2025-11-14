@@ -2,8 +2,16 @@
 let products = [];
 let allProducts = []; // Store all products for filtering
 let categories = [];
+let selectedCategoryId = '';
 let cart = { items: [] };
 let currentUser = null;
+
+function capitalizeWords(text = '') {
+    return String(text)
+        .split(' ')
+        .map(word => word ? word.charAt(0).toUpperCase() + word.slice(1) : '')
+        .join(' ');
+}
 
 // Check login and load products
 window.addEventListener('DOMContentLoaded', async () => {
@@ -36,7 +44,6 @@ window.addEventListener('DOMContentLoaded', async () => {
     await fetchCategories();
     await fetchProducts();
     updateCartCount();
-    setupCategoryFilter();
 });
 
 // Fetch branch information from API
@@ -87,50 +94,96 @@ async function fetchCategories() {
         if (response.ok) {
             const data = await response.json();
             categories = data.data || [];
-            populateCategorySelector();
+            renderCategoryChips();
         }
     } catch (error) {
         console.error('Error fetching categories:', error);
     }
 }
 
-// Populate category selector dropdown
-function populateCategorySelector() {
-    const categorySelect = document.getElementById('categorySelect');
-    if (!categorySelect) return;
+// Render category chips with counts
+function renderCategoryChips() {
+    const chipsContainer = document.getElementById('categoryChips');
+    if (!chipsContainer) return;
 
-    // Clear existing options except "All Categories"
-    categorySelect.innerHTML = '<option value="">All Categories</option>';
+    const counts = getCategoryCounts();
+    chipsContainer.innerHTML = '';
 
-    // Add category options
+    const allChip = createCategoryChip('', 'All Categories', allProducts.length, selectedCategoryId === '');
+    chipsContainer.appendChild(allChip);
+
     categories.forEach(category => {
-        const option = document.createElement('option');
-        option.value = category._id;
-        option.textContent = category.name;
-        categorySelect.appendChild(option);
+        const count = counts[category._id] || 0;
+        const chip = createCategoryChip(category._id, category.name, count, selectedCategoryId === category._id);
+        chipsContainer.appendChild(chip);
     });
 }
 
-// Setup category filter event listener
-function setupCategoryFilter() {
-    const categorySelect = document.getElementById('categorySelect');
-    if (categorySelect) {
-        categorySelect.addEventListener('change', (e) => {
-            filterProductsByCategory(e.target.value);
-        });
-    }
+function createCategoryChip(id, label, count, isActive) {
+    const chip = document.createElement('button');
+    chip.className = `category-chip${isActive ? ' active' : ''}`;
+    chip.type = 'button';
+    chip.dataset.categoryId = id || '';
+    chip.innerHTML = `
+        <span class="chip-label">${capitalizeWords(label)}</span>
+        <span class="chip-count">${count}</span>
+    `;
+    chip.addEventListener('click', () => filterProductsByCategory(id));
+    return chip;
+}
+
+function getCategoryCounts() {
+    const counts = {};
+    allProducts.forEach(product => {
+        let categoryId = null;
+        if (product.category) {
+            if (typeof product.category === 'object') {
+                categoryId = product.category._id || product.category.id || null;
+            } else if (typeof product.category === 'string') {
+                categoryId = product.category;
+            }
+        }
+
+        if (!categoryId && product.categoryName) {
+            const matchingCategory = categories.find(cat => cat.name === product.categoryName);
+            if (matchingCategory) {
+                categoryId = matchingCategory._id;
+            }
+        }
+
+        if (categoryId) {
+            counts[categoryId] = (counts[categoryId] || 0) + 1;
+        }
+    });
+    return counts;
 }
 
 // Filter products by category
 function filterProductsByCategory(categoryId) {
-    if (!categoryId || categoryId === '') {
+    selectedCategoryId = categoryId || '';
+    if (!selectedCategoryId) {
         products = [...allProducts];
     } else {
         products = allProducts.filter(product => {
-            return product.category && product.category._id === categoryId;
+            if (product.category) {
+                if (typeof product.category === 'object' && product.category._id) {
+                    return product.category._id === selectedCategoryId;
+                }
+                if (typeof product.category === 'string') {
+                    return product.category === selectedCategoryId;
+                }
+            }
+            if (product.categoryName) {
+                const selectedCategory = categories.find(cat => cat._id === selectedCategoryId);
+                if (selectedCategory && product.categoryName === selectedCategory.name) {
+                    return true;
+                }
+            }
+            return false;
         });
     }
     renderProducts();
+    renderCategoryChips();
 }
 
 // Helper function to extract products from API response
@@ -169,14 +222,18 @@ function processProductItems(productsData) {
                 }
             }
             
+            const name = capitalizeWords(item.name || '');
+            const categoryName = capitalizeWords(item.category?.name || '');
+            const productTypeName = capitalizeWords(item.productType?.name || '');
+
             return {
                 _id: item._id,
                 id: item._id || item.id,
-                name: item.name || '',
+                name: name,
                 category: item.category || null,
-                categoryName: item.category?.name || '',
+                categoryName: categoryName || '',
                 productType: item.productType || null,
-                productTypeName: item.productType?.name || '',
+                productTypeName: productTypeName || '',
                 image: item.image || '',
                 shortDescription: item.shortDescription || '',
                 description: item.description || '',
@@ -236,6 +293,7 @@ async function fetchProducts() {
         // Process all products
         allProducts = processProductItems(allProductsData);
         products = [...allProducts];
+        renderCategoryChips();
 
         if (products.length === 0) {
             productsGrid.innerHTML = '<div class="loading">No products available</div>';
