@@ -21,9 +21,9 @@ body {
 }
 
 .nav-container {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 0 20px;
+    width: 100%;
+    margin: 0;
+    padding: 0 15px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -132,44 +132,59 @@ body {
 
 .category-filter {
     margin-bottom: 25px;
-    display: flex;
-    align-items: center;
-    gap: 15px;
+    background: white;
+    border-radius: 15px;
     padding: 15px 20px;
-    background: white;
-    border-radius: 0;
-    box-shadow: none;
-    margin-left: 0;
-    margin-right: 0;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-.category-filter label {
+.category-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    overflow-x: auto;
+    padding: 5px 0;
+    scrollbar-width: thin;
+}
+
+.category-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border-radius: 999px;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    background: #fff;
+    color: #555;
     font-weight: 600;
-    color: #333;
-    font-size: 1em;
-}
-
-.category-select {
-    flex: 1;
-    max-width: 300px;
-    padding: 10px 15px;
-    border: 2px solid #e0e0e0;
-    border-radius: 8px;
-    font-size: 1em;
-    font-family: inherit;
-    background: white;
+    font-size: 0.95em;
     cursor: pointer;
-    transition: all 0.3s ease;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
 }
 
-.category-select:focus {
-    outline: none;
-    border-color: #F6A121;
-    box-shadow: 0 0 0 3px rgba(246, 161, 33, 0.1);
+.category-chip .chip-count {
+    background: #F6A121;
+    color: white;
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-size: 0.8em;
+    font-weight: 600;
 }
 
-.category-select:hover {
-    border-color: #F6A121;
+.category-chip:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+.category-chip.active {
+    background: linear-gradient(135deg, #F6A121 0%, #E8951F 100%);
+    color: white;
+    border-color: transparent;
+}
+
+.category-chip.active .chip-count {
+    background: rgba(255, 255, 255, 0.25);
 }
 
 .header-section {
