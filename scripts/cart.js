@@ -35,6 +35,7 @@ window.addEventListener('DOMContentLoaded', () => {
     renderCart();
     setupEventListeners();
     setupModalListeners();
+    setupPhoneModalListeners();
     initializeStripe();
 });
 
@@ -223,14 +224,8 @@ function setupEventListeners() {
             return;
         }
 
-        // Handle Stripe payment
-        if (selectedPaymentMethod === 'Stripe Card') {
-            await processStripePayment();
-        } else {
-            // Save payment record for other payment methods
-            await savePaymentRecord(selectedPaymentMethod);
-            generateBill(selectedPaymentMethod);
-        }
+        // Show phone number form modal
+        showPhoneNumberModal(selectedPaymentMethod);
     });
 
     clearBtnEl.addEventListener('click', () => {
@@ -254,6 +249,610 @@ function setupEventListeners() {
     });
 }
 
+// Show phone number modal
+let currentPaymentMethod = '';
+let currentCustomerData = null;
+let currentLoyaltyPoints = 0;
+
+// Cache for users list (fetched once and stored locally)
+let usersCache = null;
+let usersCacheTimestamp = null;
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache
+
+function showPhoneNumberModal(paymentMethod) {
+    currentPaymentMethod = paymentMethod;
+    const phoneModal = document.getElementById('phoneModal');
+    const phoneInput = document.getElementById('customerPhone');
+    const customerInfo = document.getElementById('customerInfo');
+    const phoneSearchStatus = document.getElementById('phoneSearchStatus');
+    const continueBtn = document.getElementById('continueBtn');
+    
+    phoneInput.value = '';
+    if (customerInfo) {
+        customerInfo.style.display = 'none';
+        customerInfo.classList.remove('show');
+    }
+    phoneSearchStatus.textContent = '';
+    phoneSearchStatus.className = 'phone-search-status';
+    currentCustomerData = null;
+    currentLoyaltyPoints = 0;
+    window.customerPhoneNumber = '';
+    window.loyaltyDiscount = 0;
+    
+    // Reset button to submit type
+    if (continueBtn) {
+        continueBtn.type = 'submit';
+        continueBtn.disabled = false;
+        continueBtn.textContent = 'Search & Continue';
+        continueBtn.style.display = 'block';
+    }
+    
+    // Reset Apply and Cancel buttons
+    const applyBtn = document.getElementById('applyDiscountBtn');
+    const cancelBtn = document.getElementById('cancelDiscountBtn');
+    if (applyBtn) {
+        applyBtn.disabled = true;
+        applyBtn.style.display = 'none';
+    }
+    if (cancelBtn) {
+        cancelBtn.disabled = true;
+        cancelBtn.style.display = 'none';
+    }
+    
+    phoneModal.style.display = 'flex';
+    phoneInput.focus();
+}
+
+// Close phone number modal
+function closePhoneNumberModal() {
+    const phoneModal = document.getElementById('phoneModal');
+    phoneModal.style.display = 'none';
+    currentPaymentMethod = '';
+    currentCustomerData = null;
+    currentLoyaltyPoints = 0;
+    window.customerPhoneNumber = '';
+    window.customerData = null;
+    window.loyaltyPoints = 0;
+    window.loyaltyDiscount = 0;
+}
+
+// Fetch all users from API and cache them locally
+async function fetchAllUsers() {
+    // Check if cache is still valid
+    const now = Date.now();
+    if (usersCache && usersCacheTimestamp && (now - usersCacheTimestamp) < CACHE_DURATION) {
+        console.log('Using cached users list');
+        return usersCache;
+    }
+
+    try {
+        // Get token from currentUser (stored in sessionStorage)
+        const userToken = currentUser?.token;
+        
+        // Debug: Log token status
+        if (!userToken) {
+            console.error('No token found. Please login again.');
+            alert('Session expired. Please login again.');
+            sessionStorage.removeItem('user');
+            window.location.href = 'index.html';
+            return;
+        }
+
+        console.log('Fetching users with token:', userToken.substring(0, 20) + '...');
+        
+        const response = await fetch('https://api.mr-bakers.com/api/users', {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${userToken}`,
+                'Accept': 'application/json'
+            }
+        });
+
+        console.log('Users API response status:', response.status);
+
+        if (!response.ok) {
+            if (response.status === 401) {
+                const errorText = await response.text();
+                console.error('401 Unauthorized - Token may be expired:', errorText);
+                alert('Session expired. Please login again.');
+                sessionStorage.removeItem('user');
+                window.location.href = 'index.html';
+                throw new Error('Authentication failed. Please login again.');
+            }
+            const errorText = await response.text();
+            console.error(`Failed to fetch users: ${response.status}`, errorText);
+            throw new Error(`Failed to fetch users: ${response.status}`);
+        }
+
+        const data = await response.json();
+        
+        // Handle different response formats
+        let usersArray = [];
+        if (Array.isArray(data)) {
+            usersArray = data;
+        } else if (data.data && Array.isArray(data.data)) {
+            usersArray = data.data;
+        } else if (data.users && Array.isArray(data.users)) {
+            usersArray = data.users;
+        }
+
+        // Filter only customers
+        const customers = usersArray.filter(user => user.role === 'customer');
+        
+        // Cache the results
+        usersCache = customers;
+        usersCacheTimestamp = now;
+        
+        console.log(`Fetched and cached ${customers.length} customers`);
+        return customers;
+    } catch (error) {
+        console.error('Error fetching users:', error);
+        throw error;
+    }
+}
+
+// Search for customer by phone number locally from cached users (clean simple logic)
+function findCustomerByPhone(phoneNumber, usersList) {
+    const customer = usersList.find(
+        (user) => String(user.phone) === String(phoneNumber)
+    );
+    return customer || null;
+}
+
+// Main function to find customer by phone number (searches locally)
+async function fetchCustomerByPhone(phoneNumber) {
+    try {
+        // Step 1: Load all users (or use cache)
+        const usersList = await fetchAllUsers();
+        
+        // Step 2: Find user locally by phone number (clean search)
+        const customer = findCustomerByPhone(phoneNumber, usersList);
+        
+        if (customer) {
+            console.log('Customer found locally:', customer);
+            return customer;
+        }
+
+        console.log(`Customer not found with phone: ${phoneNumber}`);
+        return null;
+    } catch (error) {
+        console.error('Error fetching customer:', error);
+        return null;
+    }
+}
+
+// Fetch loyalty points for customer using /api/loyalty/{customerId} endpoint
+async function fetchLoyaltyPoints(customerId) {
+    try {
+        const userToken = currentUser?.token;
+        
+        if (!userToken) {
+            console.error('No token found for loyalty points fetch');
+            return 0;
+        }
+
+        console.log('Fetching loyalty points for customer:', customerId);
+        
+        // Use /api/loyalty/{customerId} endpoint format
+        const response = await fetch(`https://api.mr-bakers.com/api/loyalty/${customerId}`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${userToken}`,
+                'Accept': 'application/json'
+            }
+        });
+
+        console.log('Loyalty points API response status:', response.status);
+
+        if (!response.ok) {
+            if (response.status === 404) {
+                console.log('No loyalty points found for customer');
+                return 0; // No loyalty points found
+            }
+            if (response.status === 401) {
+                console.error('401 Unauthorized - Token may be expired');
+                alert('Session expired. Please login again.');
+                sessionStorage.removeItem('user');
+                window.location.href = 'index.html';
+                return 0;
+            }
+            const errorText = await response.text();
+            console.error('Failed to fetch loyalty points:', response.status, errorText);
+            return 0; // Return 0 instead of throwing to allow purchase to continue
+        }
+
+        const data = await response.json();
+        console.log('Loyalty points response:', data);
+        
+        // Handle different response formats
+        const points = data.points || data.balance || data.total || 0;
+        return points;
+    } catch (error) {
+        console.error('Error fetching loyalty points:', error);
+        return 0; // Return 0 to allow purchase to continue even if loyalty fetch fails
+    }
+}
+
+// Calculate discount from loyalty points (1 point = 1 rupee discount)
+function calculateDiscountFromPoints(points, totalAmount) {
+    const discountAmount = Math.min(points, totalAmount);
+    return discountAmount;
+}
+
+// Setup phone number modal listeners
+function setupPhoneModalListeners() {
+    const phoneModal = document.getElementById('phoneModal');
+    const phoneForm = document.getElementById('phoneForm');
+    const phoneInput = document.getElementById('customerPhone');
+    const closePhoneModal = document.getElementById('closePhoneModal');
+    const cancelPhoneBtn = document.getElementById('cancelPhoneBtn');
+    const overlay = phoneModal ? phoneModal.querySelector('.modal-overlay') : null;
+    const customerInfo = document.getElementById('customerInfo');
+    const phoneSearchStatus = document.getElementById('phoneSearchStatus');
+    const continueBtn = document.getElementById('continueBtn');
+
+    if (!phoneModal || !phoneForm || !phoneInput || !closePhoneModal || !cancelPhoneBtn) return;
+
+    // Only allow numeric input
+    phoneInput.addEventListener('input', (e) => {
+        e.target.value = e.target.value.replace(/[^0-9]/g, '');
+    });
+
+    const closeHandler = () => {
+        closePhoneNumberModal();
+    };
+
+    closePhoneModal.addEventListener('click', closeHandler);
+    cancelPhoneBtn.addEventListener('click', closeHandler);
+    if (overlay) {
+        overlay.addEventListener('click', closeHandler);
+    }
+
+    phoneForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        e.stopPropagation(); // Stop event from bubbling up
+        e.stopImmediatePropagation(); // Stop other handlers
+        
+        const phoneInput = document.getElementById('customerPhone');
+        const phoneNumber = phoneInput.value.trim();
+
+        if (!phoneNumber || phoneNumber.length < 7) {
+            phoneInput.classList.add('input-error');
+            setTimeout(() => phoneInput.classList.remove('input-error'), 1500);
+            alert('Please enter a valid phone number (minimum 7 digits).');
+            return;
+        }
+
+        // Disable continue button and show loading
+        continueBtn.disabled = true;
+        continueBtn.textContent = 'Loading...';
+        phoneSearchStatus.textContent = 'Fetching customer details...';
+        phoneSearchStatus.className = 'phone-search-status searching';
+        if (customerInfo) {
+            customerInfo.style.display = 'none';
+            customerInfo.classList.remove('show');
+        }
+
+        try {
+            // Step 1: Find customer by phone number (local search)
+            const customer = await fetchCustomerByPhone(phoneNumber);
+            
+            if (customer) {
+                // Don't proceed automatically - show form first
+                currentCustomerData = customer;
+                
+                // Step 2: Get customer _id
+                const customerId = customer._id;
+                if (!customerId) {
+                    throw new Error('Customer ID not found');
+                }
+                
+                // Step 3: Fetch loyalty points using customer _id
+                const points = await fetchLoyaltyPoints(customerId);
+                // Always store points (even if 0)
+                currentLoyaltyPoints = points || 0;
+                
+                // Step 4: Calculate discount from loyalty points
+                const subtotal = cart.items.reduce((sum, item) => {
+                    return sum + (item.productId.price * item.quantity);
+                }, 0);
+                const tax = subtotal * 0.05;
+                const totalAmount = subtotal + tax;
+                // Calculate discount (always calculate, even if points is 0)
+                const pointsValue = currentLoyaltyPoints || 0;
+                const discount = calculateDiscountFromPoints(pointsValue, totalAmount);
+                window.loyaltyDiscount = discount || 0;
+                
+                // Step 5: Display customer info and loyalty points in UI
+                let customerName = '';
+                if (customer.firstName && customer.lastName) {
+                    customerName = `${customer.firstName} ${customer.lastName}`;
+                } else if (customer.firstName) {
+                    customerName = customer.firstName;
+                } else if (customer.name) {
+                    customerName = customer.name;
+                } else if (customer.username) {
+                    customerName = customer.username;
+                } else {
+                    customerName = 'Customer';
+                }
+                
+                // Get customerInfo element again to make sure it's current
+                const customerInfoEl = document.getElementById('customerInfo');
+                const customerNameEl = document.getElementById('customerName');
+                const loyaltyPointsEl = document.getElementById('loyaltyPoints');
+                const loyaltyDiscountEl = document.getElementById('loyaltyDiscount');
+                
+                // Update UI with customer details - ALWAYS show form even if points are 0
+                if (customerNameEl) {
+                    customerNameEl.textContent = customerName;
+                }
+                
+                // Always show points (even if 0) - ensure it displays "0" when no points
+                const displayPoints = currentLoyaltyPoints || 0;
+                if (loyaltyPointsEl) {
+                    loyaltyPointsEl.textContent = displayPoints.toLocaleString();
+                }
+                
+                // Always show discount (even if 0) - ensure it displays "₹0.00" when no discount
+                const displayDiscount = window.loyaltyDiscount || 0;
+                if (loyaltyDiscountEl) {
+                    loyaltyDiscountEl.textContent = `₹${displayDiscount.toFixed(2)}`;
+                }
+                
+                // ALWAYS show customer info section/form (even if points are 0)
+                console.log('Showing customer info form...');
+                console.log('Customer info element:', customerInfoEl);
+                console.log('Points:', currentLoyaltyPoints);
+                console.log('Discount:', window.loyaltyDiscount);
+                
+                // Make sure form is visible - force show with inline style and class
+                if (customerInfoEl) {
+                    // Remove any conflicting inline styles first
+                    customerInfoEl.style.removeProperty('display');
+                    customerInfoEl.style.removeProperty('visibility');
+                    customerInfoEl.style.removeProperty('opacity');
+                    
+                    // Add show class
+                    customerInfoEl.classList.add('show');
+                    
+                    // Force display with inline style using !important
+                    customerInfoEl.style.setProperty('display', 'block', 'important');
+                    customerInfoEl.style.setProperty('visibility', 'visible', 'important');
+                    customerInfoEl.style.setProperty('opacity', '1', 'important');
+                    customerInfoEl.style.setProperty('position', 'relative', 'important');
+                    customerInfoEl.style.setProperty('z-index', '10', 'important');
+                    
+                    // Ensure parent modal is still visible
+                    const phoneModal = document.getElementById('phoneModal');
+                    if (phoneModal) {
+                        phoneModal.style.setProperty('display', 'flex', 'important');
+                        phoneModal.style.setProperty('z-index', '2000', 'important');
+                    }
+                    
+                    console.log('Customer info form displayed - display:', window.getComputedStyle(customerInfoEl).display);
+                    console.log('Customer info computed display:', window.getComputedStyle(customerInfoEl).display);
+                    console.log('Customer info element:', customerInfoEl);
+                    console.log('Has show class:', customerInfoEl.classList.contains('show'));
+                    console.log('Phone modal display:', phoneModal ? window.getComputedStyle(phoneModal).display : 'not found');
+                } else {
+                    console.error('customerInfo element not found!');
+                }
+                
+                phoneSearchStatus.textContent = 'Customer found!';
+                phoneSearchStatus.className = 'phone-search-status success';
+                
+                // Store phone number and customer data
+                window.customerPhoneNumber = phoneNumber;
+                window.customerData = currentCustomerData;
+                window.loyaltyPoints = currentLoyaltyPoints;
+                
+                // Hide the continue button when loyalty points form is shown (user must use Apply/Cancel)
+                if (continueBtn) {
+                    continueBtn.style.setProperty('display', 'none', 'important');
+                    continueBtn.disabled = true;
+                    console.log('Continue button hidden');
+                }
+                
+                // Re-enable Apply and Cancel buttons
+                const applyBtn = document.getElementById('applyDiscountBtn');
+                const cancelBtn = document.getElementById('cancelDiscountBtn');
+                console.log('Apply button element:', applyBtn);
+                console.log('Cancel button element:', cancelBtn);
+                
+                if (applyBtn) {
+                    applyBtn.disabled = false;
+                    applyBtn.style.setProperty('display', 'block', 'important');
+                    applyBtn.style.setProperty('visibility', 'visible', 'important');
+                    applyBtn.style.setProperty('opacity', '1', 'important');
+                    console.log('Apply button shown - display:', applyBtn.style.display);
+                } else {
+                    console.error('Apply button not found!');
+                }
+                
+                if (cancelBtn) {
+                    cancelBtn.disabled = false;
+                    cancelBtn.style.setProperty('display', 'block', 'important');
+                    cancelBtn.style.setProperty('visibility', 'visible', 'important');
+                    cancelBtn.style.setProperty('opacity', '1', 'important');
+                    console.log('Cancel button shown - display:', cancelBtn.style.display);
+                } else {
+                    console.error('Cancel button not found!');
+                }
+                
+                // Force a reflow to ensure display changes take effect
+                if (customerInfoEl) {
+                    customerInfoEl.offsetHeight; // Trigger reflow
+                }
+                
+                // IMPORTANT: Stop form submission here - don't proceed to bill generation
+                // User must click Apply or Cancel button to proceed
+                console.log('Customer found - loyalty form displayed. Waiting for Apply/Cancel click.');
+                console.log('Form should be visible now. Modal should stay open.');
+                
+                // Double check modal is still open
+                const phoneModalCheck = document.getElementById('phoneModal');
+                if (phoneModalCheck) {
+                    phoneModalCheck.style.setProperty('display', 'flex', 'important');
+                    console.log('Modal confirmed open:', window.getComputedStyle(phoneModalCheck).display);
+                }
+                
+                // Verify form is visible
+                setTimeout(() => {
+                    const checkForm = document.getElementById('customerInfo');
+                    if (checkForm) {
+                        const computed = window.getComputedStyle(checkForm);
+                        console.log('Form visibility check - display:', computed.display, 'visibility:', computed.visibility, 'opacity:', computed.opacity);
+                        if (computed.display === 'none') {
+                            console.error('FORM IS HIDDEN! Forcing show again...');
+                            checkForm.style.setProperty('display', 'block', 'important');
+                            checkForm.classList.add('show');
+                        }
+                    }
+                }, 100);
+                
+                return; // Exit here - don't proceed to bill
+            } else {
+                // Customer not found - show message
+                currentCustomerData = null;
+                currentLoyaltyPoints = 0;
+                window.loyaltyDiscount = 0;
+                customerInfo.style.display = 'none';
+                phoneSearchStatus.textContent = 'Customer not found';
+                phoneSearchStatus.className = 'phone-search-status not-found';
+                
+                // Store phone number anyway (for bill)
+                window.customerPhoneNumber = phoneNumber;
+                window.customerData = null;
+                window.loyaltyPoints = 0;
+                
+                // Show continue button for customer not found case
+                continueBtn.disabled = false;
+                continueBtn.textContent = 'Continue without Customer';
+                continueBtn.type = 'button';
+                continueBtn.style.display = 'block';
+                
+                // Hide Apply and Cancel buttons (customer not found)
+                const applyBtn = document.getElementById('applyDiscountBtn');
+                const cancelBtn = document.getElementById('cancelDiscountBtn');
+                if (applyBtn) applyBtn.style.display = 'none';
+                if (cancelBtn) cancelBtn.style.display = 'none';
+            }
+        } catch (error) {
+            console.error('Error fetching customer:', error);
+            phoneSearchStatus.textContent = 'Error fetching customer. You can continue.';
+            phoneSearchStatus.className = 'phone-search-status error';
+            currentCustomerData = null;
+            currentLoyaltyPoints = 0;
+            window.loyaltyDiscount = 0;
+            customerInfo.style.display = 'none';
+            
+            // Show continue button for error case
+            continueBtn.disabled = false;
+            continueBtn.textContent = 'Continue without Points';
+            continueBtn.type = 'button'; // Change to button to allow manual click
+            continueBtn.style.display = 'block';
+            
+            // Hide Apply and Cancel buttons (error case)
+            const applyBtn = document.getElementById('applyDiscountBtn');
+            const cancelBtn = document.getElementById('cancelDiscountBtn');
+            if (applyBtn) applyBtn.style.display = 'none';
+            if (cancelBtn) cancelBtn.style.display = 'none';
+            
+            // Store phone number anyway
+            window.customerPhoneNumber = phoneNumber;
+            window.customerData = null;
+            window.loyaltyPoints = 0;
+        }
+    });
+
+    // Handle Apply Discount button click
+    const applyDiscountBtn = document.getElementById('applyDiscountBtn');
+    if (applyDiscountBtn) {
+        applyDiscountBtn.addEventListener('click', async () => {
+            // Apply discount and proceed with purchase
+            const phoneNumber = document.getElementById('customerPhone').value.trim();
+            if (!phoneNumber || phoneNumber.length < 7) {
+                return;
+            }
+
+            // Close modal and proceed with discount applied
+            closePhoneNumberModal();
+
+            // Handle Stripe payment
+            if (currentPaymentMethod === 'Stripe Card') {
+                await processStripePayment();
+            } else {
+                // Save payment record for other payment methods
+                await savePaymentRecord(currentPaymentMethod);
+                generateBill(currentPaymentMethod);
+            }
+        });
+    }
+
+    // Handle Cancel Discount button click
+    const cancelDiscountBtn = document.getElementById('cancelDiscountBtn');
+    if (cancelDiscountBtn) {
+        cancelDiscountBtn.addEventListener('click', async () => {
+            // Cancel discount (set to 0) and proceed without discount
+            window.loyaltyDiscount = 0;
+            currentLoyaltyPoints = 0;
+            window.loyaltyPoints = 0;
+
+            const phoneNumber = document.getElementById('customerPhone').value.trim();
+            if (!phoneNumber || phoneNumber.length < 7) {
+                return;
+            }
+
+            // Close modal and proceed without discount
+            closePhoneNumberModal();
+
+            // Handle Stripe payment
+            if (currentPaymentMethod === 'Stripe Card') {
+                await processStripePayment();
+            } else {
+                // Save payment record for other payment methods
+                await savePaymentRecord(currentPaymentMethod);
+                generateBill(currentPaymentMethod);
+            }
+        });
+    }
+
+    // Handle continue button click (ONLY when customer NOT found or error case)
+    continueBtn.addEventListener('click', async (e) => {
+        // Prevent form submission if button type is button
+        if (continueBtn.type === 'button') {
+            e.preventDefault();
+        }
+        
+        // Check if customer info form is visible - if yes, don't proceed (user must use Apply/Cancel)
+        if (customerInfo.style.display === 'block') {
+            console.log('Customer found - please use Apply or Cancel button');
+            return;
+        }
+        
+        // Only proceed if we have the phone number and customer was NOT found
+        const phoneNumber = document.getElementById('customerPhone').value.trim();
+        if (!phoneNumber || phoneNumber.length < 7) {
+            return;
+        }
+
+        // Close modal and proceed (only when customer not found)
+        closePhoneNumberModal();
+
+        // Handle Stripe payment
+        if (currentPaymentMethod === 'Stripe Card') {
+            await processStripePayment();
+        } else {
+            // Save payment record for other payment methods
+            await savePaymentRecord(currentPaymentMethod);
+            generateBill(currentPaymentMethod);
+        }
+    });
+}
+
 function generateBill(paymentMethod) {
     const purchaseBtn = document.getElementById('purchaseBtn');
     purchaseBtn.disabled = true;
@@ -263,10 +862,18 @@ function generateBill(paymentMethod) {
         return sum + (item.productId.price * item.quantity);
     }, 0);
     const tax = subtotal * 0.05;
-    const total = subtotal + tax;
+    const loyaltyDiscount = window.loyaltyDiscount || 0;
+    const total = Math.max(0, subtotal + tax - loyaltyDiscount); // Ensure total doesn't go negative
+
+    const customerPhone = window.customerPhoneNumber || '';
+    const customerData = window.customerData || null;
+    const loyaltyPoints = window.loyaltyPoints || 0;
 
     const order = {
         username: currentUser.username,
+        customerPhone: customerPhone,
+        customerData: customerData,
+        loyaltyPoints: loyaltyPoints,
         items: cart.items.map(item => {
             let productName = item.productId.name;
             if (item.selectedSize) {
@@ -282,6 +889,7 @@ function generateBill(paymentMethod) {
         }),
         subtotal: subtotal,
         tax: tax,
+        loyaltyDiscount: loyaltyDiscount,
         total: total,
         paymentMethod: paymentMethod,
         orderDate: new Date().toISOString(),
@@ -309,6 +917,23 @@ function generateBill(paymentMethod) {
         <div class="bill-info">
             <p><strong>Date:</strong> ${date}</p>
             <p><strong>Invoice #:</strong> ${order.invoiceNumber}</p>
+            ${order.customerPhone ? `<p><strong>Customer Phone:</strong> ${order.customerPhone}</p>` : ''}
+            ${order.customerData ? (() => {
+                const cust = order.customerData;
+                let custName = '';
+                if (cust.firstName && cust.lastName) {
+                    custName = `${cust.firstName} ${cust.lastName}`;
+                } else if (cust.firstName) {
+                    custName = cust.firstName;
+                } else if (cust.name) {
+                    custName = cust.name;
+                } else if (cust.username) {
+                    custName = cust.username;
+                } else {
+                    custName = 'Customer';
+                }
+                return `<p><strong>Customer:</strong> ${custName}</p>`;
+            })() : ''}
         </div>
         <p><strong>Payment Method:</strong> ${order.paymentMethod}</p>
         <hr class="bill-divider">
@@ -337,6 +962,12 @@ function generateBill(paymentMethod) {
             <span>Tax (5%):</span>
             <span>₹${order.tax.toFixed(2)}</span>
         </div>
+        ${order.loyaltyDiscount > 0 ? `
+        <div class="bill-total discount">
+            <span>Loyalty Points Discount:</span>
+            <span>-₹${order.loyaltyDiscount.toFixed(2)}</span>
+        </div>
+        ` : ''}
         <div class="bill-total grand-total">
             <span><strong>Total:</strong></span>
             <span><strong>₹${order.total.toFixed(2)}</strong></span>
@@ -394,6 +1025,11 @@ function setupModalListeners() {
         if (paymentMethodSelect) {
             paymentMethodSelect.value = '';
         }
+        // Clear customer phone number and loyalty data
+        window.customerPhoneNumber = '';
+        window.customerData = null;
+        window.loyaltyPoints = 0;
+        window.loyaltyDiscount = 0;
     };
     
     closeModal.addEventListener('click', closeModalHandler);
@@ -440,6 +1076,8 @@ function setupModalListeners() {
             if (paymentMethodSelect) {
                 paymentMethodSelect.value = '';
             }
+            // Clear customer phone number
+            window.customerPhoneNumber = '';
         }, { once: true });
         
         // Fallback: hide after delay
@@ -449,6 +1087,8 @@ function setupModalListeners() {
             if (paymentMethodSelect) {
                 paymentMethodSelect.value = '';
             }
+            // Clear customer phone number
+            window.customerPhoneNumber = '';
         }, 2000);
     });
     
