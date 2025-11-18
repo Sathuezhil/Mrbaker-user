@@ -299,21 +299,34 @@ function showPhoneNumberModal(paymentMethod) {
         cancelBtn.style.display = 'none';
     }
     
+    // Ensure bill modal is closed when opening phone modal
+    const billModal = document.getElementById('billModal');
+    if (billModal) {
+        billModal.style.display = 'none';
+    }
+    
+    // Reset loyalty form flag and bill guard
+    window.loyaltyFormShown = false;
+    window.allowBillGeneration = false;
+    
     phoneModal.style.display = 'flex';
     phoneInput.focus();
 }
 
 // Close phone number modal
-function closePhoneNumberModal() {
+function closePhoneNumberModal(resetData = true) {
     const phoneModal = document.getElementById('phoneModal');
     phoneModal.style.display = 'none';
-    currentPaymentMethod = '';
-    currentCustomerData = null;
-    currentLoyaltyPoints = 0;
-    window.customerPhoneNumber = '';
-    window.customerData = null;
-    window.loyaltyPoints = 0;
-    window.loyaltyDiscount = 0;
+    if (resetData) {
+        currentPaymentMethod = '';
+        currentCustomerData = null;
+        currentLoyaltyPoints = 0;
+        window.customerPhoneNumber = '';
+        window.customerData = null;
+        window.loyaltyPoints = 0;
+        window.loyaltyDiscount = 0;
+        window.allowBillGeneration = false;
+    }
 }
 
 // Fetch all users from API and cache them locally
@@ -487,13 +500,12 @@ function setupPhoneModalListeners() {
     const phoneForm = document.getElementById('phoneForm');
     const phoneInput = document.getElementById('customerPhone');
     const closePhoneModal = document.getElementById('closePhoneModal');
-    const cancelPhoneBtn = document.getElementById('cancelPhoneBtn');
     const overlay = phoneModal ? phoneModal.querySelector('.modal-overlay') : null;
     const customerInfo = document.getElementById('customerInfo');
     const phoneSearchStatus = document.getElementById('phoneSearchStatus');
     const continueBtn = document.getElementById('continueBtn');
 
-    if (!phoneModal || !phoneForm || !phoneInput || !closePhoneModal || !cancelPhoneBtn) return;
+    if (!phoneModal || !phoneForm || !phoneInput || !closePhoneModal) return;
 
     // Only allow numeric input
     phoneInput.addEventListener('input', (e) => {
@@ -505,15 +517,22 @@ function setupPhoneModalListeners() {
     };
 
     closePhoneModal.addEventListener('click', closeHandler);
-    cancelPhoneBtn.addEventListener('click', closeHandler);
     if (overlay) {
         overlay.addEventListener('click', closeHandler);
     }
 
+    // Flags to control loyalty form visibility and bill generation
+    window.loyaltyFormShown = false;
+    window.allowBillGeneration = false;
+    
     phoneForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         e.stopPropagation(); // Stop event from bubbling up
         e.stopImmediatePropagation(); // Stop other handlers
+        
+        // Reset flags
+        window.loyaltyFormShown = false;
+        window.allowBillGeneration = false;
         
         const phoneInput = document.getElementById('customerPhone');
         const phoneNumber = phoneInput.value.trim();
@@ -525,14 +544,35 @@ function setupPhoneModalListeners() {
             return;
         }
 
+        // Ensure customerInfo is hidden before search
+        if (customerInfo) {
+            customerInfo.style.display = 'none';
+            customerInfo.classList.remove('show');
+            customerInfo.style.setProperty('display', 'none', 'important');
+        }
+        
+        // Hide Apply and Cancel buttons initially
+        const applyBtn = document.getElementById('applyDiscountBtn');
+        const cancelBtn = document.getElementById('cancelDiscountBtn');
+        if (applyBtn) {
+            applyBtn.style.display = 'none';
+            applyBtn.disabled = true;
+        }
+        if (cancelBtn) {
+            cancelBtn.style.display = 'none';
+            cancelBtn.disabled = true;
+        }
+
         // Disable continue button and show loading
         continueBtn.disabled = true;
         continueBtn.textContent = 'Loading...';
         phoneSearchStatus.textContent = 'Fetching customer details...';
         phoneSearchStatus.className = 'phone-search-status searching';
-        if (customerInfo) {
-            customerInfo.style.display = 'none';
-            customerInfo.classList.remove('show');
+        
+        // Ensure bill modal is closed
+        const billModal = document.getElementById('billModal');
+        if (billModal) {
+            billModal.style.display = 'none';
         }
 
         try {
@@ -603,11 +643,6 @@ function setupPhoneModalListeners() {
                 }
                 
                 // ALWAYS show customer info section/form (even if points are 0)
-                console.log('Showing customer info form...');
-                console.log('Customer info element:', customerInfoEl);
-                console.log('Points:', currentLoyaltyPoints);
-                console.log('Discount:', window.loyaltyDiscount);
-                
                 // Make sure form is visible - force show with inline style and class
                 if (customerInfoEl) {
                     // Remove any conflicting inline styles first
@@ -631,14 +666,6 @@ function setupPhoneModalListeners() {
                         phoneModal.style.setProperty('display', 'flex', 'important');
                         phoneModal.style.setProperty('z-index', '2000', 'important');
                     }
-                    
-                    console.log('Customer info form displayed - display:', window.getComputedStyle(customerInfoEl).display);
-                    console.log('Customer info computed display:', window.getComputedStyle(customerInfoEl).display);
-                    console.log('Customer info element:', customerInfoEl);
-                    console.log('Has show class:', customerInfoEl.classList.contains('show'));
-                    console.log('Phone modal display:', phoneModal ? window.getComputedStyle(phoneModal).display : 'not found');
-                } else {
-                    console.error('customerInfo element not found!');
                 }
                 
                 phoneSearchStatus.textContent = 'Customer found!';
@@ -653,23 +680,17 @@ function setupPhoneModalListeners() {
                 if (continueBtn) {
                     continueBtn.style.setProperty('display', 'none', 'important');
                     continueBtn.disabled = true;
-                    console.log('Continue button hidden');
                 }
                 
                 // Re-enable Apply and Cancel buttons
                 const applyBtn = document.getElementById('applyDiscountBtn');
                 const cancelBtn = document.getElementById('cancelDiscountBtn');
-                console.log('Apply button element:', applyBtn);
-                console.log('Cancel button element:', cancelBtn);
                 
                 if (applyBtn) {
                     applyBtn.disabled = false;
                     applyBtn.style.setProperty('display', 'block', 'important');
                     applyBtn.style.setProperty('visibility', 'visible', 'important');
                     applyBtn.style.setProperty('opacity', '1', 'important');
-                    console.log('Apply button shown - display:', applyBtn.style.display);
-                } else {
-                    console.error('Apply button not found!');
                 }
                 
                 if (cancelBtn) {
@@ -677,9 +698,6 @@ function setupPhoneModalListeners() {
                     cancelBtn.style.setProperty('display', 'block', 'important');
                     cancelBtn.style.setProperty('visibility', 'visible', 'important');
                     cancelBtn.style.setProperty('opacity', '1', 'important');
-                    console.log('Cancel button shown - display:', cancelBtn.style.display);
-                } else {
-                    console.error('Cancel button not found!');
                 }
                 
                 // Force a reflow to ensure display changes take effect
@@ -689,14 +707,28 @@ function setupPhoneModalListeners() {
                 
                 // IMPORTANT: Stop form submission here - don't proceed to bill generation
                 // User must click Apply or Cancel button to proceed
-                console.log('Customer found - loyalty form displayed. Waiting for Apply/Cancel click.');
-                console.log('Form should be visible now. Modal should stay open.');
                 
-                // Double check modal is still open
+                // Set flag to indicate loyalty form is shown
+                window.loyaltyFormShown = true;
+                window.allowBillGeneration = false;
+                
+                // Re-enable continue button but keep it hidden (user must use Apply/Cancel)
+                if (continueBtn) {
+                    continueBtn.style.setProperty('display', 'none', 'important');
+                    continueBtn.disabled = true;
+                    continueBtn.type = 'button'; // Change to button to prevent form submission
+                }
+                
+                // Double check modal is still open and bill modal is closed
                 const phoneModalCheck = document.getElementById('phoneModal');
                 if (phoneModalCheck) {
                     phoneModalCheck.style.setProperty('display', 'flex', 'important');
-                    console.log('Modal confirmed open:', window.getComputedStyle(phoneModalCheck).display);
+                }
+                
+                // Ensure bill modal is definitely closed
+                const billModalCheck = document.getElementById('billModal');
+                if (billModalCheck) {
+                    billModalCheck.style.display = 'none';
                 }
                 
                 // Verify form is visible
@@ -704,16 +736,16 @@ function setupPhoneModalListeners() {
                     const checkForm = document.getElementById('customerInfo');
                     if (checkForm) {
                         const computed = window.getComputedStyle(checkForm);
-                        console.log('Form visibility check - display:', computed.display, 'visibility:', computed.visibility, 'opacity:', computed.opacity);
                         if (computed.display === 'none') {
-                            console.error('FORM IS HIDDEN! Forcing show again...');
                             checkForm.style.setProperty('display', 'block', 'important');
                             checkForm.classList.add('show');
                         }
+                        // Confirm loyalty form is shown
+                        window.loyaltyFormShown = true;
                     }
                 }, 100);
                 
-                return; // Exit here - don't proceed to bill
+                return; // Exit here - don't proceed to bill. User must click Apply/Cancel.
             } else {
                 // Customer not found - show message
                 currentCustomerData = null;
@@ -778,17 +810,25 @@ function setupPhoneModalListeners() {
                 return;
             }
 
-            // Close modal and proceed with discount applied
-            closePhoneNumberModal();
-
-            // Handle Stripe payment
-            if (currentPaymentMethod === 'Stripe Card') {
-                await processStripePayment();
-            } else {
-                // Save payment record for other payment methods
-                await savePaymentRecord(currentPaymentMethod);
-                generateBill(currentPaymentMethod);
+            // Ensure loyalty form was shown before proceeding
+            const customerInfoCheck = document.getElementById('customerInfo');
+            const isFormVisible = customerInfoCheck && (
+                window.getComputedStyle(customerInfoCheck).display === 'block' || 
+                customerInfoCheck.classList.contains('show')
+            );
+            
+            if (!isFormVisible && !window.loyaltyFormShown) {
+                return;
             }
+
+            // Close modal and proceed with discount applied
+            window.allowBillGeneration = true;
+            closePhoneNumberModal(false);
+            
+            // Reset flag
+            window.loyaltyFormShown = false;
+
+            await triggerCheckoutFlow();
         });
     }
 
@@ -806,17 +846,25 @@ function setupPhoneModalListeners() {
                 return;
             }
 
-            // Close modal and proceed without discount
-            closePhoneNumberModal();
-
-            // Handle Stripe payment
-            if (currentPaymentMethod === 'Stripe Card') {
-                await processStripePayment();
-            } else {
-                // Save payment record for other payment methods
-                await savePaymentRecord(currentPaymentMethod);
-                generateBill(currentPaymentMethod);
+            // Ensure loyalty form was shown before proceeding
+            const customerInfoCheck = document.getElementById('customerInfo');
+            const isFormVisible = customerInfoCheck && (
+                window.getComputedStyle(customerInfoCheck).display === 'block' || 
+                customerInfoCheck.classList.contains('show')
+            );
+            
+            if (!isFormVisible && !window.loyaltyFormShown) {
+                return;
             }
+
+            // Close modal and proceed without discount
+            window.allowBillGeneration = true;
+            closePhoneNumberModal(false);
+            
+            // Reset flag
+            window.loyaltyFormShown = false;
+
+            await triggerCheckoutFlow();
         });
     }
 
@@ -828,9 +876,12 @@ function setupPhoneModalListeners() {
         }
         
         // Check if customer info form is visible - if yes, don't proceed (user must use Apply/Cancel)
-        if (customerInfo.style.display === 'block') {
-            console.log('Customer found - please use Apply or Cancel button');
-            return;
+        const customerInfoCheck = document.getElementById('customerInfo');
+        if (customerInfoCheck) {
+            const computedStyle = window.getComputedStyle(customerInfoCheck);
+            if (computedStyle.display === 'block' || customerInfoCheck.classList.contains('show')) {
+                return;
+            }
         }
         
         // Only proceed if we have the phone number and customer was NOT found
@@ -840,23 +891,45 @@ function setupPhoneModalListeners() {
         }
 
         // Close modal and proceed (only when customer not found)
-        closePhoneNumberModal();
+        window.allowBillGeneration = true;
+        closePhoneNumberModal(false);
 
         // Handle Stripe payment
-        if (currentPaymentMethod === 'Stripe Card') {
-            await processStripePayment();
-        } else {
-            // Save payment record for other payment methods
-            await savePaymentRecord(currentPaymentMethod);
-            generateBill(currentPaymentMethod);
-        }
+        await triggerCheckoutFlow();
     });
+}
+
+async function triggerCheckoutFlow() {
+    const method = currentPaymentMethod;
+    if (!method) {
+        alert('Payment method missing. Please select again.');
+        window.allowBillGeneration = false;
+        return;
+    }
+
+    if (method === 'Stripe Card') {
+        await processStripePayment();
+    } else {
+        await savePaymentRecord(method);
+        generateBill(method);
+    }
 }
 
 function generateBill(paymentMethod) {
     const purchaseBtn = document.getElementById('purchaseBtn');
-    purchaseBtn.disabled = true;
-    purchaseBtn.textContent = 'Processing...';
+    if (!window.allowBillGeneration) {
+        console.warn('Bill generation blocked: flag not set.');
+        if (purchaseBtn) {
+            purchaseBtn.disabled = false;
+            purchaseBtn.textContent = 'Purchase & Print Bill';
+        }
+        return;
+    }
+    window.allowBillGeneration = false;
+    if (purchaseBtn) {
+        purchaseBtn.disabled = true;
+        purchaseBtn.textContent = 'Processing...';
+    }
 
     const subtotal = cart.items.reduce((sum, item) => {
         return sum + (item.productId.price * item.quantity);
@@ -985,6 +1058,12 @@ function generateBill(paymentMethod) {
         </div>
     `;
 
+    // Ensure phone modal is closed before opening bill
+    const phoneModal = document.getElementById('phoneModal');
+    if (phoneModal) {
+        phoneModal.style.display = 'none';
+    }
+    
     // Show bill in modal (without buttons - modal has its own footer buttons)
     document.getElementById('modalBillContent').innerHTML = billContentWithoutButtons;
     document.getElementById('billModal').style.display = 'flex';
@@ -1302,12 +1381,19 @@ async function handleStripeCardAdd() {
 async function processStripePayment() {
     if (!stripe || !stripeCardNumber || !stripeCardExpiry || !stripeCardCvc) {
         alert('Stripe card form is not ready. Please add a card first.');
+        window.allowBillGeneration = false;
         return;
     }
 
     const purchaseBtn = document.getElementById('purchaseBtn');
     purchaseBtn.disabled = true;
     purchaseBtn.textContent = 'Processing Payment...';
+
+    if (!window.allowBillGeneration) {
+        purchaseBtn.disabled = false;
+        purchaseBtn.textContent = 'Purchase & Print Bill';
+        return;
+    }
 
     try {
         const subtotal = cart.items.reduce((sum, item) => {
@@ -1353,6 +1439,7 @@ async function processStripePayment() {
 
             // Payment successful - generate bill
             generateBill('Stripe Card');
+            window.allowBillGeneration = false;
             
             // Reset Stripe form
             if (stripeCardNumber) {
@@ -1380,6 +1467,7 @@ async function processStripePayment() {
         stripeCardErrors.style.display = 'block';
         purchaseBtn.disabled = false;
         purchaseBtn.textContent = 'Purchase & Print Bill';
+        window.allowBillGeneration = false;
     }
 }
 
