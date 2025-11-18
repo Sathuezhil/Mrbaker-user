@@ -91,6 +91,60 @@
         </div>
     </div>
 
+    <!-- Customer Phone Number Modal -->
+    <div id="phoneModal" class="phone-modal" style="display: none;">
+        <div class="modal-overlay"></div>
+        <div class="modal-content phone-modal-content">
+            <div class="modal-header">
+                <h3>Customer Details</h3>
+                <button class="modal-close" id="closePhoneModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="phoneForm">
+                    <div class="form-group">
+                        <label for="customerPhone">Customer Phone Number</label>
+                        <input type="tel" id="customerPhone" name="customerPhone" 
+                               placeholder="Enter phone number" 
+                               pattern="[0-9]+" 
+                               required>
+                        <div id="phoneSearchStatus" class="phone-search-status"></div>
+                    </div>
+                    <div id="customerInfo" class="customer-info" style="display: none;">
+                        <div class="customer-info-header">
+                            <h4>🎁 Loyalty Points Information</h4>
+                        </div>
+                        <div class="customer-info-body">
+                            <div class="info-row">
+                                <span class="info-label">👤 Customer:</span>
+                                <span id="customerName" class="info-value"></span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">⭐ Loyalty Points:</span>
+                                <span id="loyaltyPoints" class="info-value points-value"></span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">💰 Available Discount:</span>
+                                <span id="loyaltyDiscount" class="info-value discount-value"></span>
+                            </div>
+                        </div>
+                        <div class="loyalty-actions">
+                            <button type="button" class="apply-btn" id="applyDiscountBtn" style="display: none;">
+                                <span>✓ Apply Discount</span>
+                            </button>
+                            <button type="button" class="cancel-loyalty-btn" id="cancelDiscountBtn" style="display: none;">
+                                <span>✕ Cancel</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="submit" class="print-btn" id="continueBtn">Search & Continue</button>
+                        <button type="button" class="cancel-btn" id="cancelPhoneBtn">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <!-- Bill Preview Modal -->
     <div id="billModal" class="bill-modal" style="display: none;">
         <div class="modal-overlay"></div>
