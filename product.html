@@ -13,9 +13,10 @@
                 <span class="logo-text">MR. BAKER</span>
             </div>
             <div class="nav-right">
-                <button class="cart-btn" id="cartBtn">
-                    🛒 Cart <span id="cartCount">0</span>
-                </button>
+                <div class="username-display" id="usernameDisplay">
+                    <span id="usernameText" class="username-text"></span>
+                    <span id="usernamePosition" class="username-position"></span>
+                </div>
                 <button class="logout-btn" id="logoutBtn">Logout</button>
                 <div class="user-info" id="userInfo">
                     <span id="branchName"></span>
@@ -25,16 +26,198 @@
     </nav>
 
     <div class="container">
-        <div class="category-filter">
-            <div class="category-chips" id="categoryChips">
-                <!-- Category chips will be rendered here -->
+        <div class="main-content">
+            <div class="products-section">
+                <div class="category-filter">
+                    <div class="category-chips" id="categoryChips">
+                        <!-- Category chips will be rendered here -->
+                    </div>
+                </div>
+                <div class="products-header">
+                    <h2>Available Products</h2>
+                    <span class="products-count" id="productsCount">0 items</span>
+                </div>
+                <div class="products-grid" id="productsGrid">
+                    <!-- Products will be loaded here -->
+                </div>
             </div>
-        </div>
-        <div class="products-grid" id="productsGrid">
-            <!-- Products will be loaded here -->
+
+            <div class="cart-sidebar">
+                <div class="cart-header">
+                    <h3>Cart (<span id="cartCount">0</span>)</h3>
+                </div>
+                <div class="cart-items" id="cartItems">
+                    <!-- Cart items will be rendered here -->
+                </div>
+                <div class="cart-summary">
+                    <div class="summary-row">
+                        <span>Subtotal:</span>
+                        <span id="cartSubtotal">₹0.00</span>
+                    </div>
+                    <div class="summary-row">
+                        <span>Tax (5%):</span>
+                        <span id="cartTax">₹0.00</span>
+                    </div>
+                    <div class="summary-row total">
+                        <span>Total:</span>
+                        <span id="cartTotal">₹0.00</span>
+                    </div>
+                    <button class="checkout-btn" id="checkoutBtn">Checkout</button>
+                    <button class="clear-cart-btn" id="clearCartBtn">Clear Cart</button>
+                </div>
+                <div class="recent-orders-card">
+                    <div class="recent-orders-header">
+                        <h3>Recent Orders</h3>
+                        <button class="refresh-orders-btn" id="refreshOrdersBtn">⟳</button>
+                    </div>
+                    <div class="recent-orders-list" id="recentOrdersList">
+                        <div class="orders-placeholder">No orders yet</div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
+    <!-- Size Selection Modal -->
+    <div id="sizeModal" class="size-modal" style="display: none;">
+        <div class="modal-overlay"></div>
+        <div class="modal-content size-modal-content">
+            <div class="modal-header">
+                <h3>Select Size</h3>
+                <button class="modal-close" id="closeSizeModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="product-info-modal">
+                    <div class="product-name-modal" id="modalProductName"></div>
+                </div>
+                <div class="form-group">
+                    <label for="sizeSelect">Size:</label>
+                    <select id="sizeSelect" class="size-select-modal">
+                        <!-- Size options will be loaded here -->
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="cancel-btn" id="cancelSizeBtn">Cancel</button>
+                <button type="button" class="add-cart-modal-btn" id="confirmAddCartBtn">Add to Cart</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Order Summary Modal -->
+    <div id="orderSummaryModal" class="order-summary-modal" style="display: none;">
+        <div class="modal-overlay"></div>
+        <div class="modal-content order-summary-content">
+            <div class="modal-header">
+                <h3>Order Summary</h3>
+                <button class="modal-close" id="closeOrderSummaryModal">&times;</button>
+            </div>
+            <div class="modal-body order-summary-body">
+                <div class="summary-card">
+                    <div class="summary-row">
+                        <span>Subtotal:</span>
+                        <span id="orderSubtotal">₹0.00</span>
+                    </div>
+                    <div class="summary-row">
+                        <span>Tax (5%):</span>
+                        <span id="orderTax">₹0.00</span>
+                    </div>
+                    <div class="summary-row total-row">
+                        <span>Total:</span>
+                        <span id="orderTotal">₹0.00</span>
+                    </div>
+                </div>
+                <div class="payment-section">
+                    <label for="orderPaymentMethod">Payment Method</label>
+                    <select id="orderPaymentMethod">
+                        <option value="">Select payment method</option>
+                        <option value="Cash">Cash</option>
+                        <option value="Card">Card</option>
+                        <option value="paypal">PayPal</option>
+                    </select>
+                    <!-- Stripe Card Form (shown when Card is selected) -->
+                    <div id="stripeCardForm" class="stripe-card-form" style="display: none; margin-top: 15px;">
+                        <div class="stripe-field-group">
+                            <label for="stripeCardNumber">Card Number</label>
+                            <div id="stripeCardNumber" class="stripe-card-element"></div>
+                        </div>
+                        <div class="stripe-field-row">
+                            <div class="stripe-field-group">
+                                <label for="stripeCardExpiry">Expiry</label>
+                                <div id="stripeCardExpiry" class="stripe-card-element"></div>
+                            </div>
+                            <div class="stripe-field-group">
+                                <label for="stripeCardCvc">CVC</label>
+                                <div id="stripeCardCvc" class="stripe-card-element"></div>
+                            </div>
+                        </div>
+                        <div id="stripeCardErrors" class="stripe-card-errors"></div>
+                        <button type="button" id="addCardBtn" class="add-card-btn">Add Card</button>
+                    </div>
+                </div>
+                <div class="customer-section">
+                    <div class="form-group">
+                        <label for="orderCustomerPhone">Customer Phone Number</label>
+                        <input type="tel" id="orderCustomerPhone" name="orderCustomerPhone"
+                               placeholder="Enter phone number" minlength="7" autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                        <label for="orderOrderType">Order Type</label>
+                        <select id="orderOrderType" name="orderOrderType">
+                            <option value="">Select order type</option>
+                            <option value="take-away">Take Away</option>
+                            <option value="dine-in">Dine In</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer order-summary-footer">
+                <button type="button" class="purchase-btn" id="orderPurchaseBtn">Purchase</button>
+                <button type="button" class="clear-btn" id="orderClearBtn">Clear Cart</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loyalty Points Modal -->
+    <div id="loyaltyPointsModal" class="loyalty-points-modal" style="display: none;">
+        <div class="modal-overlay"></div>
+        <div class="modal-content loyalty-modal-content">
+            <div class="modal-header">
+                <h3>🎁 Loyalty Points Information</h3>
+                <button class="modal-close" id="closeLoyaltyModal">&times;</button>
+            </div>
+            <div class="modal-body loyalty-modal-body">
+                <div id="loyaltyCustomerInfo" class="loyalty-customer-info">
+                    <div class="info-row">
+                        <span class="info-label">👤 Customer:</span>
+                        <span id="loyaltyCustomerName" class="info-value"></span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">⭐ Loyalty Points:</span>
+                        <span id="loyaltyPointsDisplay" class="info-value points-value">0</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">💰 Available Discount:</span>
+                        <span id="loyaltyDiscountDisplay" class="info-value discount-value">₹0.00</span>
+                    </div>
+                </div>
+                <div id="loyaltyLoading" class="loyalty-loading" style="display: none;">
+                    <p>Loading loyalty points...</p>
+                </div>
+                <div id="loyaltyNotFound" class="loyalty-not-found" style="display: none;">
+                    <p>Customer not found. You can continue without loyalty points.</p>
+                </div>
+            </div>
+            <div class="modal-footer loyalty-modal-footer">
+                <button type="button" class="continue-with-points-btn" id="continueWithPointsBtn" style="display: none;">Continue with Points</button>
+                <button type="button" class="continue-without-btn" id="continueWithoutBtn">Continue without Points</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bill functionality removed -->
+
+    <script src="https://js.stripe.com/v3/"></script>
     <script src="scripts/product.js"></script>
 </body>
 </html>

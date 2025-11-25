@@ -34,7 +34,6 @@ window.addEventListener('DOMContentLoaded', () => {
     loadCart();
     renderCart();
     setupEventListeners();
-    setupModalListeners();
     setupPhoneModalListeners();
     initializeStripe();
 });
@@ -46,6 +45,13 @@ function loadCart() {
 
 function saveCart() {
     localStorage.setItem(`cart_${currentUser.id}`, JSON.stringify(cart));
+}
+
+// Helper function to reset payment method select
+function resetPaymentMethod() {
+    if (paymentMethodSelect) {
+        paymentMethodSelect.value = '';
+    }
 }
 
 function renderCart() {
@@ -179,7 +185,7 @@ function setupEventListeners() {
     if (paymentMethodSelect) {
         paymentMethodSelect.addEventListener('change', async (e) => {
             const selectedMethod = e.target.value;
-            if (selectedMethod === 'Stripe Card') {
+            if (selectedMethod === 'Card') {
                 stripeCardForm.style.display = 'block';
                 // Wait for Stripe to initialize if not ready
                 if (!stripe) {
@@ -233,9 +239,7 @@ function setupEventListeners() {
             cart = { items: [] };
             saveCart();
             renderCart();
-            if (paymentMethodSelect) {
-                paymentMethodSelect.value = '';
-            }
+            resetPaymentMethod();
         }
     });
 
@@ -251,23 +255,24 @@ function setupEventListeners() {
 
 // Show phone number modal
 let currentPaymentMethod = '';
+let currentOrderType = 'take-away'; // Default to take-away
 let currentCustomerData = null;
 let currentLoyaltyPoints = 0;
 
-// Cache for users list (fetched once and stored locally)
-let usersCache = null;
-let usersCacheTimestamp = null;
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache
-
 function showPhoneNumberModal(paymentMethod) {
     currentPaymentMethod = paymentMethod;
+    currentOrderType = 'take-away'; // Reset to default
     const phoneModal = document.getElementById('phoneModal');
     const phoneInput = document.getElementById('customerPhone');
+    const orderTypeSelect = document.getElementById('orderType');
     const customerInfo = document.getElementById('customerInfo');
     const phoneSearchStatus = document.getElementById('phoneSearchStatus');
     const continueBtn = document.getElementById('continueBtn');
     
     phoneInput.value = '';
+    if (orderTypeSelect) {
+        orderTypeSelect.value = '';
+    }
     if (customerInfo) {
         customerInfo.style.display = 'none';
         customerInfo.classList.remove('show');
@@ -299,11 +304,7 @@ function showPhoneNumberModal(paymentMethod) {
         cancelBtn.style.display = 'none';
     }
     
-    // Ensure bill modal is closed when opening phone modal
-    const billModal = document.getElementById('billModal');
-    if (billModal) {
-        billModal.style.display = 'none';
-    }
+    // Bill modal removed from UI
     
     // Reset loyalty form flag and bill guard
     window.loyaltyFormShown = false;
@@ -329,31 +330,22 @@ function closePhoneNumberModal(resetData = true) {
     }
 }
 
-// Fetch all users from API and cache them locally
-async function fetchAllUsers() {
-    // Check if cache is still valid
-    const now = Date.now();
-    if (usersCache && usersCacheTimestamp && (now - usersCacheTimestamp) < CACHE_DURATION) {
-        console.log('Using cached users list');
-        return usersCache;
-    }
+// Old fetchAllUsers and findCustomerByPhone functions removed - now using /user-by-phone API directly
 
+// Main function to find customer by phone number using API
+async function fetchCustomerByPhone(phoneNumber) {
     try {
-        // Get token from currentUser (stored in sessionStorage)
         const userToken = currentUser?.token;
         
-        // Debug: Log token status
         if (!userToken) {
             console.error('No token found. Please login again.');
-            alert('Session expired. Please login again.');
-            sessionStorage.removeItem('user');
-            window.location.href = 'index.html';
-            return;
+            return null;
         }
 
-        console.log('Fetching users with token:', userToken.substring(0, 20) + '...');
+        console.log('Fetching customer by phone number:', phoneNumber);
         
-        const response = await fetch('https://api.mr-bakers.com/api/users', {
+        // Use the /user-by-phone/:phoneNumber API endpoint
+        const response = await fetch(`https://api.mr-bakers.com/api/user-by-phone/${phoneNumber}`, {
             method: 'GET',
             headers: {
                 'Content-Type': 'application/json',
@@ -362,7 +354,7 @@ async function fetchAllUsers() {
             }
         });
 
-        console.log('Users API response status:', response.status);
+        console.log('User-by-phone API response status:', response.status);
 
         if (!response.ok) {
             if (response.status === 401) {
@@ -371,66 +363,39 @@ async function fetchAllUsers() {
                 alert('Session expired. Please login again.');
                 sessionStorage.removeItem('user');
                 window.location.href = 'index.html';
-                throw new Error('Authentication failed. Please login again.');
+                return null;
+            }
+            if (response.status === 404) {
+                console.log(`Customer not found with phone: ${phoneNumber}`);
+                return null;
             }
             const errorText = await response.text();
-            console.error(`Failed to fetch users: ${response.status}`, errorText);
-            throw new Error(`Failed to fetch users: ${response.status}`);
+            console.error(`Failed to fetch customer: ${response.status}`, errorText);
+            return null;
         }
 
         const data = await response.json();
         
         // Handle different response formats
-        let usersArray = [];
-        if (Array.isArray(data)) {
-            usersArray = data;
-        } else if (data.data && Array.isArray(data.data)) {
-            usersArray = data.data;
-        } else if (data.users && Array.isArray(data.users)) {
-            usersArray = data.users;
+        let customer = null;
+        if (data.data) {
+            customer = data.data;
+        } else if (data.user) {
+            customer = data.user;
+        } else if (data._id) {
+            customer = data;
         }
 
-        // Filter only customers
-        const customers = usersArray.filter(user => user.role === 'customer');
-        
-        // Cache the results
-        usersCache = customers;
-        usersCacheTimestamp = now;
-        
-        console.log(`Fetched and cached ${customers.length} customers`);
-        return customers;
-    } catch (error) {
-        console.error('Error fetching users:', error);
-        throw error;
-    }
-}
-
-// Search for customer by phone number locally from cached users (clean simple logic)
-function findCustomerByPhone(phoneNumber, usersList) {
-    const customer = usersList.find(
-        (user) => String(user.phone) === String(phoneNumber)
-    );
-    return customer || null;
-}
-
-// Main function to find customer by phone number (searches locally)
-async function fetchCustomerByPhone(phoneNumber) {
-    try {
-        // Step 1: Load all users (or use cache)
-        const usersList = await fetchAllUsers();
-        
-        // Step 2: Find user locally by phone number (clean search)
-        const customer = findCustomerByPhone(phoneNumber, usersList);
-        
-        if (customer) {
-            console.log('Customer found locally:', customer);
+        // Check if customer role is 'customer'
+        if (customer && customer.role === 'customer') {
+            console.log('Customer found via API:', customer);
             return customer;
         }
 
-        console.log(`Customer not found with phone: ${phoneNumber}`);
+        console.log(`Customer not found or not a customer role with phone: ${phoneNumber}`);
         return null;
     } catch (error) {
-        console.error('Error fetching customer:', error);
+        console.error('Error fetching customer by phone:', error);
         return null;
     }
 }
@@ -535,7 +500,9 @@ function setupPhoneModalListeners() {
         window.allowBillGeneration = false;
         
         const phoneInput = document.getElementById('customerPhone');
+        const orderTypeSelect = document.getElementById('orderType');
         const phoneNumber = phoneInput.value.trim();
+        const orderType = orderTypeSelect ? orderTypeSelect.value : '';
 
         if (!phoneNumber || phoneNumber.length < 7) {
             phoneInput.classList.add('input-error');
@@ -543,6 +510,18 @@ function setupPhoneModalListeners() {
             alert('Please enter a valid phone number (minimum 7 digits).');
             return;
         }
+
+        if (!orderType) {
+            if (orderTypeSelect) {
+                orderTypeSelect.classList.add('input-error');
+                setTimeout(() => orderTypeSelect.classList.remove('input-error'), 1500);
+            }
+            alert('Please select order type (Dine In or Take Away).');
+            return;
+        }
+
+        // Store selected order type
+        currentOrderType = orderType;
 
         // Ensure customerInfo is hidden before search
         if (customerInfo) {
@@ -569,11 +548,7 @@ function setupPhoneModalListeners() {
         phoneSearchStatus.textContent = 'Fetching customer details...';
         phoneSearchStatus.className = 'phone-search-status searching';
         
-        // Ensure bill modal is closed
-        const billModal = document.getElementById('billModal');
-        if (billModal) {
-            billModal.style.display = 'none';
-        }
+        // Bill modal removed from UI
 
         try {
             // Step 1: Find customer by phone number (local search)
@@ -725,11 +700,7 @@ function setupPhoneModalListeners() {
                     phoneModalCheck.style.setProperty('display', 'flex', 'important');
                 }
                 
-                // Ensure bill modal is definitely closed
-                const billModalCheck = document.getElementById('billModal');
-                if (billModalCheck) {
-                    billModalCheck.style.display = 'none';
-                }
+                // Bill modal removed from UI
                 
                 // Verify form is visible
                 setTimeout(() => {
@@ -907,272 +878,21 @@ async function triggerCheckoutFlow() {
         return;
     }
 
-    if (method === 'Stripe Card') {
+    if (method === 'Card') {
         await processStripePayment();
     } else {
         await savePaymentRecord(method);
-        generateBill(method);
+        await savePosOrder(method, currentOrderType || 'take-away'); // Save POS order with selected order type
+        // Bill generation disabled — no modal will be shown
     }
 }
 
-function generateBill(paymentMethod) {
-    const purchaseBtn = document.getElementById('purchaseBtn');
-    if (!window.allowBillGeneration) {
-        console.warn('Bill generation blocked: flag not set.');
-        if (purchaseBtn) {
-            purchaseBtn.disabled = false;
-            purchaseBtn.textContent = 'Purchase & Print Bill';
-        }
-        return;
-    }
-    window.allowBillGeneration = false;
-    if (purchaseBtn) {
-        purchaseBtn.disabled = true;
-        purchaseBtn.textContent = 'Processing...';
-    }
-
-    const subtotal = cart.items.reduce((sum, item) => {
-        return sum + (item.productId.price * item.quantity);
-    }, 0);
-    const tax = subtotal * 0.05;
-    const loyaltyDiscount = window.loyaltyDiscount || 0;
-    const total = Math.max(0, subtotal + tax - loyaltyDiscount); // Ensure total doesn't go negative
-
-    const customerPhone = window.customerPhoneNumber || '';
-    const customerData = window.customerData || null;
-    const loyaltyPoints = window.loyaltyPoints || 0;
-
-    const order = {
-        username: currentUser.username,
-        customerPhone: customerPhone,
-        customerData: customerData,
-        loyaltyPoints: loyaltyPoints,
-        items: cart.items.map(item => {
-            let productName = item.productId.name;
-            if (item.selectedSize) {
-                productName += ` (${item.selectedSize})`;
-            }
-            return {
-                productName: productName,
-                productEmoji: item.productId.emoji || '🍞',
-                quantity: item.quantity,
-                price: item.productId.price,
-                total: item.productId.price * item.quantity
-            };
-        }),
-        subtotal: subtotal,
-        tax: tax,
-        loyaltyDiscount: loyaltyDiscount,
-        total: total,
-        paymentMethod: paymentMethod,
-        orderDate: new Date().toISOString(),
-        invoiceNumber: `INV-${Date.now()}`
-    };
-
-    const date = new Date(order.orderDate).toLocaleString('en-IN', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: true
-    });
-
-    // Bill content without buttons (for modal preview)
-    const billContentWithoutButtons = `
-        <div class="bill-header">
-            <div class="mr-baker-logo">
-                <span class="logo-text">MR. BAKER</span>
-            </div>
-            <p>Invoice</p>
-        </div>
-        <div class="bill-info">
-            <p><strong>Date:</strong> ${date}</p>
-            <p><strong>Invoice #:</strong> ${order.invoiceNumber}</p>
-            ${order.customerPhone ? `<p><strong>Customer Phone:</strong> ${order.customerPhone}</p>` : ''}
-            ${order.customerData ? (() => {
-                const cust = order.customerData;
-                let custName = '';
-                if (cust.firstName && cust.lastName) {
-                    custName = `${cust.firstName} ${cust.lastName}`;
-                } else if (cust.firstName) {
-                    custName = cust.firstName;
-                } else if (cust.name) {
-                    custName = cust.name;
-                } else if (cust.username) {
-                    custName = cust.username;
-                } else {
-                    custName = 'Customer';
-                }
-                return `<p><strong>Customer:</strong> ${custName}</p>`;
-            })() : ''}
-        </div>
-        <p><strong>Payment Method:</strong> ${order.paymentMethod}</p>
-        <hr class="bill-divider">
-        <div class="bill-items">
-            <div class="bill-item-header">
-                <span>Item</span>
-                <span>Qty</span>
-                <span>Price</span>
-                <span>Total</span>
-            </div>
-            ${order.items.map(item => `
-                <div class="bill-item">
-                    <span>${item.productEmoji} ${item.productName}</span>
-                    <span>x${item.quantity}</span>
-                    <span>₹${item.price.toFixed(2)}</span>
-                    <span>₹${item.total.toFixed(2)}</span>
-                </div>
-            `).join('')}
-        </div>
-        <hr class="bill-divider">
-        <div class="bill-total">
-            <span>Subtotal:</span>
-            <span>₹${order.subtotal.toFixed(2)}</span>
-        </div>
-        <div class="bill-total">
-            <span>Tax (5%):</span>
-            <span>₹${order.tax.toFixed(2)}</span>
-        </div>
-        ${order.loyaltyDiscount > 0 ? `
-        <div class="bill-total discount">
-            <span>Loyalty Points Discount:</span>
-            <span>-₹${order.loyaltyDiscount.toFixed(2)}</span>
-        </div>
-        ` : ''}
-        <div class="bill-total grand-total">
-            <span><strong>Total:</strong></span>
-            <span><strong>₹${order.total.toFixed(2)}</strong></span>
-        </div>
-        <div class="bill-footer">
-            <p>Thank you for your purchase!</p>
-        </div>
-    `;
-
-    // Bill content with buttons (for printing)
-    const billContentWithButtons = billContentWithoutButtons + `
-        <div class="bill-actions">
-            <button class="print-btn" onclick="window.print()">🖨️ Print Bill</button>
-            <button class="back-btn" onclick="window.location.href='product.html'">Continue Shopping</button>
-        </div>
-    `;
-
-    // Ensure phone modal is closed before opening bill
-    const phoneModal = document.getElementById('phoneModal');
-    if (phoneModal) {
-        phoneModal.style.display = 'none';
-    }
-    
-    // Show bill in modal (without buttons - modal has its own footer buttons)
-    document.getElementById('modalBillContent').innerHTML = billContentWithoutButtons;
-    document.getElementById('billModal').style.display = 'flex';
-    
-    // Save full bill with buttons to billSection for printing (but hide it on page)
-    document.getElementById('billContent').innerHTML = billContentWithButtons;
-    document.getElementById('billSection').style.display = 'none'; // Hide from page, only show when printing
-
-    purchaseBtn.disabled = false;
-    purchaseBtn.textContent = 'Purchase & Print Bill';
-    if (paymentMethodSelect) {
-        paymentMethodSelect.value = '';
-    }
+// Bill generation is disabled. Keeping a no-op function to avoid runtime errors if called.
+function generateBill() {
+    console.log('generateBill: disabled');
 }
 
-// Setup modal listeners once on page load
-let modalListenersSetup = false;
-
-function setupModalListeners() {
-    if (modalListenersSetup) return; // Prevent duplicate listeners
-    
-    const modal = document.getElementById('billModal');
-    const closeModal = document.getElementById('closeModal');
-    const cancelBtn = document.getElementById('cancelBillBtn');
-    const printBtn = document.getElementById('printBillBtn');
-    
-    if (!modal || !closeModal || !cancelBtn || !printBtn) return;
-    
-    // Close modal handlers
-    const closeModalHandler = () => {
-        modal.style.display = 'none';
-        // Always hide bill section from page - only show in modal
-        document.getElementById('billSection').style.display = 'none';
-        // Clear cart after closing modal (if user doesn't print)
-        cart = { items: [] };
-        saveCart();
-        renderCart();
-        if (paymentMethodSelect) {
-            paymentMethodSelect.value = '';
-        }
-        // Clear customer phone number and loyalty data
-        window.customerPhoneNumber = '';
-        window.customerData = null;
-        window.loyaltyPoints = 0;
-        window.loyaltyDiscount = 0;
-    };
-    
-    closeModal.addEventListener('click', closeModalHandler);
-    cancelBtn.addEventListener('click', closeModalHandler);
-    
-    // Close on overlay click
-    modal.querySelector('.modal-overlay').addEventListener('click', closeModalHandler);
-    
-    // Print button handler
-    printBtn.addEventListener('click', () => {
-        // Save full bill with buttons to billSection for printing
-        const billSection = document.getElementById('billSection');
-        
-        // Close modal first
-        modal.style.display = 'none';
-        
-        // Make bill section available for print (but keep it off-screen on page)
-        billSection.style.display = 'block';
-        billSection.style.position = 'absolute';
-        billSection.style.left = '-9999px';
-        billSection.style.top = '-9999px';
-        billSection.style.visibility = 'visible';
-        
-        // Clear cart before printing
-        cart = { items: [] };
-        saveCart();
-        renderCart();
-        if (paymentMethodSelect) {
-            paymentMethodSelect.value = '';
-        }
-        
-        // Print directly - bill will show in print preview
-        setTimeout(() => {
-            window.print();
-        }, 200);
-        
-        // After printing, hide bill section from page
-        window.addEventListener('afterprint', () => {
-            billSection.style.display = 'none';
-            billSection.style.visibility = 'hidden';
-            billSection.style.position = 'absolute';
-            billSection.style.left = '-9999px';
-            billSection.style.top = '-9999px';
-            if (paymentMethodSelect) {
-                paymentMethodSelect.value = '';
-            }
-            // Clear customer phone number
-            window.customerPhoneNumber = '';
-        }, { once: true });
-        
-        // Fallback: hide after delay
-        setTimeout(() => {
-            billSection.style.display = 'none';
-            billSection.style.visibility = 'hidden';
-            if (paymentMethodSelect) {
-                paymentMethodSelect.value = '';
-            }
-            // Clear customer phone number
-            window.customerPhoneNumber = '';
-        }, 2000);
-    });
-    
-    modalListenersSetup = true;
-}
+// Bill modal and print helpers removed — invoice UI handled server-side or disabled in frontend
 
 // Stripe Integration Functions
 async function initializeStripe() {
@@ -1391,7 +1111,7 @@ async function processStripePayment() {
 
     if (!window.allowBillGeneration) {
         purchaseBtn.disabled = false;
-        purchaseBtn.textContent = 'Purchase & Print Bill';
+        purchaseBtn.textContent = 'Purchase';
         return;
     }
 
@@ -1420,7 +1140,7 @@ async function processStripePayment() {
                 stripeCardErrors.textContent = error.message;
                 stripeCardErrors.style.display = 'block';
                 purchaseBtn.disabled = false;
-                purchaseBtn.textContent = 'Purchase & Print Bill';
+                purchaseBtn.textContent = 'Purchase';
                 return;
             }
             paymentMethodId = paymentMethod.id;
@@ -1435,10 +1155,11 @@ async function processStripePayment() {
 
             // Payment method creation means card is valid
             // Save payment record to backend
-            await savePaymentRecord('Stripe Card');
+            await savePaymentRecord('Card');
+            // Save POS order to backend
+            await savePosOrder('Card', currentOrderType || 'take-away');
 
-            // Payment successful - generate bill
-            generateBill('Stripe Card');
+            // Payment successful - bill generation disabled
             window.allowBillGeneration = false;
             
             // Reset Stripe form
@@ -1466,8 +1187,226 @@ async function processStripePayment() {
         stripeCardErrors.textContent = error.message || 'Payment failed. Please try again.';
         stripeCardErrors.style.display = 'block';
         purchaseBtn.disabled = false;
-        purchaseBtn.textContent = 'Purchase & Print Bill';
+        purchaseBtn.textContent = 'Purchase';
         window.allowBillGeneration = false;
+    }
+}
+
+// Map payment method to POS order schema format (lowercase for schema)
+function mapPaymentTypeToSchema(paymentMethod) {
+    const paymentMap = {
+        'Cash': 'cash',
+        'Card': 'card',
+        'paypal': 'paypal'
+    };
+    return paymentMap[paymentMethod] || 'cash';
+}
+
+// Save POS order to backend using the schema
+async function savePosOrder(paymentMethod, orderType = 'take-away') {
+    try {
+        const subtotal = cart.items.reduce((sum, item) => {
+            return sum + (item.productId.price * item.quantity);
+        }, 0);
+        const tax = subtotal * 0.05;
+        const loyaltyDiscount = window.loyaltyDiscount || 0;
+        const totalCost = Math.max(0, subtotal + tax - loyaltyDiscount);
+
+        const userToken = currentUser.token;
+        const userId = currentUser.id;
+        const branchId = currentUser.branchId;
+
+        // Map cart items to POS order items schema
+        const posOrderItems = cart.items.map(item => {
+            return {
+                food: item.productId._id || item.productId.id, // Product reference
+                quantity: item.quantity,
+                cost: item.productId.price * item.quantity,
+                size: item.selectedSize || null,
+                offer: null // Can be set if there's an offer
+            };
+        });
+
+        // Generate bill number
+        const billNumber = `INV-${Date.now()}`;
+
+        // Create POS order object matching backend controller requirements
+        // Note: posId and date are set automatically by backend from req.user.id and new Date()
+        const posOrder = {
+            items: posOrderItems,
+            branch: branchId, // ObjectId ref: 'Branch' - required
+            orderType: orderType, // enum: ['dine-in', 'take-away'], required
+            paymentType: mapPaymentTypeToSchema(paymentMethod), // enum: ['cash', 'card', 'paypal'], required
+            totalCost: totalCost, // Number, required
+            tax: tax, // Number
+            deviceType: 'POS', // enum: ['POS', 'KIOSK'], optional, defaults to 'POS'
+            bill: billNumber // String, optional
+        };
+
+        const orderResponse = await fetch('https://api.mr-bakers.com/api/pos-order', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': userToken ? `Bearer ${userToken}` : '',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify(posOrder)
+        });
+
+        if (!orderResponse.ok) {
+            console.warn('Failed to save POS order');
+            const errorText = await orderResponse.text();
+            console.error('POS order error:', errorText);
+        } else {
+            const orderData = await orderResponse.json();
+            console.log('POS order saved:', orderData);
+            return orderData; // Return the saved order data
+        }
+    } catch (error) {
+        console.error('Error saving POS order:', error);
+        // Continue even if order save fails
+        throw error;
+    }
+}
+
+// Get all POS orders from backend
+async function getPosOrders() {
+    try {
+        const userToken = currentUser?.token;
+        if (!userToken) {
+            console.error('No token found. Please login again.');
+            throw new Error('Authentication required');
+        }
+
+        const branchId = currentUser?.branchId;
+        if (!branchId) {
+            console.error('Branch ID not found');
+            throw new Error('Branch ID is required');
+        }
+
+        // IMPORTANT: Backend doesn't have GET /api/pos-orders/:orderId route
+        // Must use: GET /api/pos-orders?branchId=xxx (with branchId as query parameter)
+        const url = `https://api.mr-bakers.com/api/pos-orders?branchId=${encodeURIComponent(branchId)}`;
+        
+        console.log('Fetching POS orders from:', url);
+        
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${userToken}`,
+                'Accept': 'application/json'
+            }
+        });
+
+        if (!response.ok) {
+            if (response.status === 401) {
+                console.error('401 Unauthorized - Token may be expired');
+                alert('Session expired. Please login again.');
+                sessionStorage.removeItem('user');
+                window.location.href = 'index.html';
+                throw new Error('Authentication failed');
+            }
+            const errorText = await response.text();
+            console.error(`Failed to fetch POS orders: ${response.status}`, errorText);
+            throw new Error(`Failed to fetch POS orders: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log('POS orders fetched:', data);
+        // Backend returns { message, orders } format
+        return data.orders || data;
+    } catch (error) {
+        console.error('Error fetching POS orders:', error);
+        throw error;
+    }
+}
+
+// Get a single POS order by ID
+// Note: Backend doesn't have GET /api/pos-orders/:orderId route
+// So we fetch all orders and filter by ID
+async function getPosOrderById(orderId) {
+    try {
+        if (!orderId) {
+            throw new Error('Order ID is required');
+        }
+
+        // Fetch all orders using the correct endpoint
+        const allOrders = await getPosOrders();
+        
+        // Handle different response formats from backend
+        let ordersArray = [];
+        if (Array.isArray(allOrders)) {
+            ordersArray = allOrders;
+        } else if (allOrders && Array.isArray(allOrders.orders)) {
+            ordersArray = allOrders.orders;
+        } else if (allOrders && allOrders.data && Array.isArray(allOrders.data)) {
+            ordersArray = allOrders.data;
+        } else {
+            console.warn('Unexpected response format from getPosOrders:', allOrders);
+            ordersArray = [];
+        }
+        
+        // Find order by ID (handle different ID formats)
+        const order = ordersArray.find(o => {
+            if (!o) return false;
+            const orderIdStr = String(orderId).trim();
+            const id1 = o._id ? String(o._id).trim() : '';
+            const id2 = o.id ? String(o.id).trim() : '';
+            return id1 === orderIdStr || id2 === orderIdStr;
+        });
+        
+        if (order) {
+            console.log('POS order found by ID:', order);
+            return order;
+        } else {
+            console.warn(`Order with ID ${orderId} not found. Total orders: ${ordersArray.length}`);
+            throw new Error(`Order with ID ${orderId} not found`);
+        }
+    } catch (error) {
+        console.error('Error fetching POS order by ID:', error);
+        throw error;
+    }
+}
+
+// Update bill image for a POS order
+async function updateBillImage(orderId, billImage) {
+    try {
+        const userToken = currentUser?.token;
+        if (!userToken) {
+            console.error('No token found. Please login again.');
+            throw new Error('Authentication required');
+        }
+
+        const response = await fetch(`https://api.mr-bakers.com/api/pos-order/${orderId}/bill`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${userToken}`,
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({ bill: billImage })
+        });
+
+        if (!response.ok) {
+            if (response.status === 401) {
+                console.error('401 Unauthorized - Token may be expired');
+                alert('Session expired. Please login again.');
+                sessionStorage.removeItem('user');
+                window.location.href = 'index.html';
+                throw new Error('Authentication failed');
+            }
+            const errorText = await response.text();
+            console.error(`Failed to update bill image: ${response.status}`, errorText);
+            throw new Error(`Failed to update bill image: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log('Bill image updated:', data);
+        return data;
+    } catch (error) {
+        console.error('Error updating bill image:', error);
+        throw error;
     }
 }
 
@@ -1483,6 +1422,26 @@ async function savePaymentRecord(paymentMethod) {
         const userToken = currentUser.token;
         const userId = currentUser.id;
 
+        // Map payment method to backend format - backend expects capitalized format like "Cash", "Card", "PayPal"
+        const paymentMap = {
+            'Cash': 'Cash',
+            'Card': 'Card',
+            'card': 'Card',
+            'cash': 'Cash',
+            'paypal': 'PayPal',
+            'PayPal': 'PayPal'
+        };
+        const mappedMethod = paymentMap[paymentMethod] || paymentMethod;
+
+        const paymentData = {
+            user: userId,
+            method: mappedMethod,
+            amount: total,
+            date: new Date().toISOString()
+        };
+
+        console.log('Saving payment record to backend:', paymentData);
+
         const paymentResponse = await fetch('https://api.mr-bakers.com/api/payments', {
             method: 'POST',
             headers: {
@@ -1490,12 +1449,7 @@ async function savePaymentRecord(paymentMethod) {
                 'Authorization': userToken ? `Bearer ${userToken}` : '',
                 'Accept': 'application/json'
             },
-            body: JSON.stringify({
-                user: userId,
-                method: paymentMethod,
-                amount: total,
-                date: new Date().toISOString()
-            })
+            body: JSON.stringify(paymentData)
         });
 
         if (!paymentResponse.ok) {
