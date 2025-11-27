@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Products - MR Baker</title>
     <link rel="stylesheet" href="styles/product.css">
+    <link rel="stylesheet" href="styles/cart.css">
 </head>
 <body>
     <nav class="navbar">
@@ -128,6 +129,17 @@
                     </div>
                 </div>
                 <div class="payment-section">
+                    <label for="orderCustomerPhone">Customer Phone Number</label>
+                    <input type="tel" id="orderCustomerPhone" name="orderCustomerPhone"
+                           placeholder="Enter phone number" minlength="7" autocomplete="off">
+                    
+                    <label for="orderOrderType">Order Type</label>
+                    <select id="orderOrderType" name="orderOrderType">
+                        <option value="">Select order type</option>
+                        <option value="take-away">Take Away</option>
+                        <option value="dine-in">Dine In</option>
+                    </select>
+                    
                     <label for="orderPaymentMethod">Payment Method</label>
                     <select id="orderPaymentMethod">
                         <option value="">Select payment method</option>
@@ -153,21 +165,6 @@
                         </div>
                         <div id="stripeCardErrors" class="stripe-card-errors"></div>
                         <button type="button" id="addCardBtn" class="add-card-btn">Add Card</button>
-                    </div>
-                </div>
-                <div class="customer-section">
-                    <div class="form-group">
-                        <label for="orderCustomerPhone">Customer Phone Number</label>
-                        <input type="tel" id="orderCustomerPhone" name="orderCustomerPhone"
-                               placeholder="Enter phone number" minlength="7" autocomplete="off">
-                    </div>
-                    <div class="form-group">
-                        <label for="orderOrderType">Order Type</label>
-                        <select id="orderOrderType" name="orderOrderType">
-                            <option value="">Select order type</option>
-                            <option value="take-away">Take Away</option>
-                            <option value="dine-in">Dine In</option>
-                        </select>
                     </div>
                 </div>
             </div>
@@ -215,7 +212,30 @@
         </div>
     </div>
 
-    <!-- Bill functionality removed -->
+    <!-- Invoice Preview Modal -->
+    <div id="billModal" class="bill-modal" style="display: none;">
+        <div class="modal-overlay"></div>
+        <div class="modal-content bill-modal-content">
+            <div class="modal-header">
+                <h3>Invoice Preview</h3>
+                <button class="modal-close" id="closeBillModal">&times;</button>
+            </div>
+            <div class="modal-body bill-modal-body" id="billModalContent">
+                <!-- Bill content will be generated here -->
+            </div>
+            <div class="modal-footer bill-modal-footer">
+                <button type="button" class="print-btn" id="printBillBtn">🖨️ Print Bill</button>
+                <button type="button" class="close-bill-btn" id="closeBillBtn">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bill Section for Printing -->
+    <div id="billSection" class="bill-section" style="display: none;">
+        <div class="bill" id="billContent">
+            <!-- Bill content will be generated here -->
+        </div>
+    </div>
 
     <script src="https://js.stripe.com/v3/"></script>
     <script src="scripts/product.js"></script>

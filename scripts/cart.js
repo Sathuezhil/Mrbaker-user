@@ -34,6 +34,7 @@ window.addEventListener('DOMContentLoaded', () => {
     loadCart();
     renderCart();
     setupEventListeners();
+    setupModalListeners();
     setupPhoneModalListeners();
     initializeStripe();
 });
@@ -799,7 +800,9 @@ function setupPhoneModalListeners() {
             // Reset flag
             window.loyaltyFormShown = false;
 
-            await triggerCheckoutFlow();
+            // Generate and show bill before proceeding
+            setupModalListeners();
+            generateAndShowBill(currentPaymentMethod);
         });
     }
 
@@ -835,7 +838,9 @@ function setupPhoneModalListeners() {
             // Reset flag
             window.loyaltyFormShown = false;
 
-            await triggerCheckoutFlow();
+            // Generate and show bill before proceeding
+            setupModalListeners();
+            generateAndShowBill(currentPaymentMethod);
         });
     }
 
@@ -865,8 +870,9 @@ function setupPhoneModalListeners() {
         window.allowBillGeneration = true;
         closePhoneNumberModal(false);
 
-        // Handle Stripe payment
-        await triggerCheckoutFlow();
+        // Generate and show bill before proceeding
+        setupModalListeners();
+        generateAndShowBill(currentPaymentMethod);
     });
 }
 
@@ -892,7 +898,209 @@ function generateBill() {
     console.log('generateBill: disabled');
 }
 
-// Bill modal and print helpers removed — invoice UI handled server-side or disabled in frontend
+// Generate and display invoice bill in modal
+function generateAndShowBill(paymentMethod) {
+    const subtotal = cart.items.reduce((sum, item) => {
+        return sum + (item.productId.price * item.quantity);
+    }, 0);
+    const tax = subtotal * 0.05;
+    const loyaltyDiscount = window.loyaltyDiscount || 0;
+    const total = subtotal + tax - loyaltyDiscount;
+
+    const billNumber = `INV-${Date.now()}`;
+    const billDate = new Date().toLocaleString('en-IN', {
+        dateStyle: 'medium',
+        timeStyle: 'medium'
+    });
+
+    // Generate bill HTML
+    const billHTML = `
+        <div class="bill-header">
+            <div class="mr-baker-logo">
+                <span class="logo-text">MR. BAKER</span>
+            </div>
+            <h2>Invoice</h2>
+        </div>
+        
+        <div class="bill-info">
+            <p><strong>Date:</strong> ${billDate}</p>
+            <p><strong>Invoice #:</strong> ${billNumber}</p>
+        </div>
+        
+        <div class="bill-divider"></div>
+        
+        <div class="bill-items">
+            <div class="bill-item-header">
+                <span>ITEM</span>
+                <span>QTY</span>
+                <span>PRICE</span>
+                <span>TOTAL</span>
+            </div>
+            ${cart.items.map(item => {
+                const product = item.productId;
+                const name = product.name || 'Product';
+                const price = product.price || 0;
+                const quantity = item.quantity || 1;
+                return `
+                    <div class="bill-item">
+                        <span>${name}</span>
+                        <span>x${quantity}</span>
+                        <span>₹${price.toFixed(2)}</span>
+                        <span>₹${(price * quantity).toFixed(2)}</span>
+                    </div>
+                `;
+            }).join('')}
+        </div>
+        
+        <div class="bill-divider"></div>
+        
+        <div class="bill-total">
+            <span>Subtotal:</span>
+            <span>₹${subtotal.toFixed(2)}</span>
+        </div>
+        <div class="bill-total">
+            <span>Tax (5%):</span>
+            <span>₹${tax.toFixed(2)}</span>
+        </div>
+        ${loyaltyDiscount > 0 ? `
+            <div class="bill-total discount">
+                <span>Loyalty Discount:</span>
+                <span>-₹${loyaltyDiscount.toFixed(2)}</span>
+            </div>
+        ` : ''}
+        <div class="bill-total grand-total">
+            <span>Total:</span>
+            <span>₹${total.toFixed(2)}</span>
+        </div>
+        
+        <div class="bill-footer">
+            <p>Thank you for your purchase!</p>
+        </div>
+    `;
+
+    // Insert into both modal and print section
+    const billModalContent = document.getElementById('billModalContent');
+    const billContent = document.getElementById('billContent');
+    
+    if (billModalContent) {
+        billModalContent.innerHTML = billHTML;
+    }
+    if (billContent) {
+        billContent.innerHTML = billHTML;
+    }
+
+    // Show the bill modal
+    const billModal = document.getElementById('billModal');
+    if (billModal) {
+        billModal.style.display = 'flex';
+    }
+}
+
+// Setup modal listeners once on page load
+let modalListenersSetup = false;
+
+function setupModalListeners() {
+    if (modalListenersSetup) return; // Prevent duplicate listeners
+    
+    const modal = document.getElementById('billModal');
+    const closeBillModal = document.getElementById('closeBillModal');
+    const closeBillBtn = document.getElementById('closeBillBtn');
+    const printBtn = document.getElementById('printBillBtn');
+    
+    if (!modal) return;
+    
+    // Close modal handlers
+    const closeModalHandler = () => {
+        modal.style.display = 'none';
+        // Clear cart after closing modal
+        cart = { items: [] };
+        saveCart();
+        renderCart();
+        resetPaymentMethod();
+        // Clear customer phone number and loyalty data
+        window.customerPhoneNumber = '';
+        window.customerData = null;
+        window.loyaltyPoints = 0;
+        window.loyaltyDiscount = 0;
+    };
+    
+    if (closeBillModal) {
+        closeBillModal.addEventListener('click', closeModalHandler);
+    }
+    if (closeBillBtn) {
+        closeBillBtn.addEventListener('click', closeModalHandler);
+    }
+    
+    // Close on overlay click
+    const overlay = modal.querySelector('.modal-overlay');
+    if (overlay) {
+        overlay.addEventListener('click', closeModalHandler);
+    }
+    
+    // Print button handler — print the dedicated off-screen print section to avoid extra page content
+    if (printBtn) {
+        printBtn.addEventListener('click', () => {
+            const printSection = document.getElementById('billSection') || modal;
+            safePrintBill(printSection);
+        });
+    }
+    
+    modalListenersSetup = true;
+}
+
+// Helper: temporarily hide all elements except the provided element, call print, then restore
+function safePrintBill(targetEl) {
+    // Safer print: open a new window with only the bill HTML (strip any images) to avoid printing other page content
+    try {
+        const billEl = document.getElementById('billContent') || targetEl;
+        let html = billEl ? billEl.innerHTML : (targetEl ? targetEl.innerHTML : '');
+
+        // Remove any <img> tags if present
+        html = html.replace(/<img[^>]*>/gi, '');
+
+        const styles = `
+            <style>
+                body { font-family: Arial, Helvetica, sans-serif; color: #111; margin: 0; padding: 20px; }
+                .bill { max-width: 700px; margin: 0 auto; padding: 20px; }
+                .bill-header, .bill-items, .bill-footer { margin-bottom: 12px; }
+                .bill-item { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 10px; padding: 6px 0; border-bottom: 1px solid #eee; }
+                .bill-item-header { font-weight: 700; border-bottom: 2px solid #ddd; padding-bottom: 6px; }
+                .bill-total { display:flex; justify-content: space-between; padding: 6px 0; }
+                @page { size: auto; margin: 10mm; }
+            </style>
+        `;
+
+        const printWindow = window.open('', '_blank', 'toolbar=0,location=0,menubar=0');
+        if (!printWindow) {
+            // Fallback to original print if popup blocked
+            window.print();
+            return;
+        }
+
+        printWindow.document.open();
+        printWindow.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Invoice</title>' + styles + '</head><body>');
+        printWindow.document.write('<div class="bill">' + html + '</div>');
+        printWindow.document.write('</body></html>');
+        printWindow.document.close();
+
+        // Wait for content to render then print
+        printWindow.focus();
+        setTimeout(() => {
+            try {
+                printWindow.print();
+            } catch (e) {
+                console.error('Print failed:', e);
+            }
+            // Optionally close the window after printing
+            try { printWindow.close(); } catch (e) {}
+        }, 500);
+    } catch (err) {
+        console.error('safePrintBill error:', err);
+        window.print();
+    }
+}
+
+// Bill modal and print helpers restored — invoice UI shown in modal
 
 // Stripe Integration Functions
 async function initializeStripe() {
