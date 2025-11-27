@@ -684,33 +684,25 @@ function addProductToCart(productId, product, cartPrice, selectedSize, selectedS
         }
     }
     
-    // Check if item with same product and size already exists
-    const existingItem = cart.items.find(item => {
-        const sameProduct = item.productId.id === productId || item.productId._id === productId;
-        const sameSize = item.selectedSize === finalSize;
-        return sameProduct && sameSize;
+    // Always add a new cart entry for POS usage (don't merge identical products)
+    const cartItemId = `ci_${Date.now()}_${Math.floor(Math.random()*10000)}`;
+    cart.items.push({
+        cartItemId: cartItemId,
+        productId: {
+            _id: product._id,
+            id: product.id,
+            name: product.name,
+            price: finalPrice,
+            prices: product.prices || null,
+            hasMultiplePrices: product.hasMultiplePrices || false,
+            image: product.image || '',
+            categoryName: product.categoryName || '',
+            productTypeName: product.productTypeName || ''
+        },
+        selectedSize: finalSize,
+        selectedSizeText: finalSizeText,
+        quantity: 1
     });
-    
-    if (existingItem) {
-        existingItem.quantity += 1;
-    } else {
-        cart.items.push({
-            productId: {
-                _id: product._id,
-                id: product.id,
-                name: product.name,
-                price: finalPrice,
-                prices: product.prices || null,
-                hasMultiplePrices: product.hasMultiplePrices || false,
-                image: product.image || '',
-                categoryName: product.categoryName || '',
-                productTypeName: product.productTypeName || ''
-            },
-            selectedSize: finalSize,
-            selectedSizeText: finalSizeText,
-            quantity: 1
-        });
-    }
     
     saveCart();
     renderCart();
@@ -773,7 +765,15 @@ function renderCart() {
     const cartItems = document.getElementById('cartItems');
     const cartCount = document.getElementById('cartCount');
     
-    if (!cart || !cart.items || cart.items.length === 0) {
+    // Validate cart structure
+    if (!cart) {
+        cart = { items: [] };
+    }
+    if (!Array.isArray(cart.items)) {
+        cart.items = [];
+    }
+    
+    if (cart.items.length === 0) {
         if (cartItems) {
             cartItems.innerHTML = `
                 <div class="empty-cart">
@@ -788,70 +788,96 @@ function renderCart() {
         return;
     }
 
-    const totalItems = cart.items.reduce((sum, item) => sum + item.quantity, 0);
+    const totalItems = cart.items.reduce((sum, item) => sum + (item.quantity || 1), 0);
     if (cartCount) cartCount.textContent = totalItems;
 
     if (cartItems) {
         cartItems.innerHTML = cart.items.map((item, index) => {
-            const product = item.productId;
-            const emoji = product.emoji || '🍞';
-            let name = product.name || 'Product';
-            if (item.selectedSize) {
-                name += ` (${item.selectedSize})`;
-            }
-            const price = product.price || 0;
-            const quantity = item.quantity || 1;
-            const productId = product.id;
-            const itemId = item.selectedSize ? `${productId}_${item.selectedSize}` : productId;
+            try {
+                // Get product info - handle both new format (object) and legacy format (ID)
+                let product = item.productId;
+                
+                // If productId is just an ID string, find the product
+                if (typeof product === 'string') {
+                    product = products.find(p => p.id === product || p._id === product);
+                }
+                
+                if (!product) {
+                    return ''; // Skip items with missing product data
+                }
+                
+                let name = product.name || 'Product';
+                if (item.selectedSize) {
+                    name += ` (${item.selectedSize})`;
+                }
+                const price = product.price || 0;
+                const quantity = item.quantity || 1;
+                const itemId = item.cartItemId || (item.selectedSize ? `${product.id}_${item.selectedSize}` : product.id);
+                const itemTotal = (price * quantity).toFixed(2);
 
-            const itemTotal = (price * quantity).toFixed(2);
-            
-            return `
-                <div class="cart-item" data-item-id="${itemId}">
-                    <div class="item-top-row">
-                        <div class="item-info-left">
+                return `
+                    <div class="cart-item compact" data-item-id="${itemId}">
+                        <div class="item-header">
                             <div class="item-name">${name}</div>
-                            <div class="item-price-per-unit">₹${price.toFixed(2)} each</div>
+                            <div class="unit-price">₹${price.toFixed(2)}</div>
                         </div>
-                        <div class="quantity-control-container">
-                            <button class="qty-btn qty-minus" onclick="updateCartQuantity('${itemId}', ${quantity - 1})">-</button>
-                            <span class="quantity-number">${quantity}</span>
-                            <button class="qty-btn qty-plus" onclick="updateCartQuantity('${itemId}', ${quantity + 1})">+</button>
+
+                        <div class="item-controls-row">
+                            <div class="qty-wrap">
+                                <button class="qty-circle qty-minus" onclick="updateCartQuantity('${itemId}', ${quantity - 1})">-</button>
+                                <span class="quantity-number">${quantity}</span>
+                                <button class="qty-circle qty-plus" onclick="updateCartQuantity('${itemId}', ${quantity + 1})">+</button>
+                            </div>
+                            <button class="remove-circle" onclick="removeCartItem('${itemId}')">🗑️</button>
+                        </div>
+
+                        <div class="item-footer">
+                            <span class="footer-label">Total:</span>
+                            <span class="item-total-price">₹${itemTotal}</span>
                         </div>
                     </div>
-                    <div class="item-bottom-row">
-                        <div class="item-total-price">₹${itemTotal}</div>
-                        <button class="remove-btn" onclick="removeCartItem('${itemId}')">🗑️</button>
-                    </div>
-                </div>
-            `;
-        }).join('');
+                `;
+            } catch (error) {
+                console.error('Error rendering cart item:', error, item);
+                return ''; // Skip items that cause errors
+            }
+        }).filter(Boolean).join('');
     }
 
     updateCartSummary();
 }
 
 function updateCartQuantity(itemId, newQuantity) {
-    const [productId, size] = itemId.includes('_') ? itemId.split('_') : [itemId, null];
-    
-    if (newQuantity <= 0) {
-        if (size) {
-            cart.items = cart.items.filter(item => 
-                !(item.productId.id === productId && item.selectedSize === size)
-            );
+    // Support unique cartItemId entries (format: ci_<timestamp>_nnn)
+    if (typeof itemId === 'string' && itemId.startsWith('ci_')) {
+        const idx = cart.items.findIndex(it => it.cartItemId === itemId);
+        if (newQuantity <= 0) {
+            if (idx !== -1) cart.items.splice(idx, 1);
         } else {
-            cart.items = cart.items.filter(item => 
-                item.productId.id !== productId && !item.selectedSize
-            );
+            if (idx !== -1) cart.items[idx].quantity = newQuantity;
         }
     } else {
-        const item = cart.items.find(item => {
-            const sameProduct = item.productId.id === productId;
-            const sameSize = size ? item.selectedSize === size : !item.selectedSize;
-            return sameProduct && sameSize;
-        });
-        if (item) {
-            item.quantity = newQuantity;
+        const [productId, size] = itemId.includes('_') ? itemId.split('_') : [itemId, null];
+        
+        if (newQuantity <= 0) {
+            if (size) {
+                cart.items = cart.items.filter(item => 
+                    !(item.productId.id === productId && item.selectedSize === size)
+                );
+            } else {
+                cart.items = cart.items.filter(item => 
+                    item.productId.id !== productId && !item.selectedSize
+                );
+            }
+        } else {
+            const item = cart.items.find(item => {
+                const sameProduct = item.productId.id === productId;
+                const sameSize = size ? item.selectedSize === size : !item.selectedSize;
+                return sameProduct && sameSize;
+            });
+            if (item) {
+                item.quantity = newQuantity;
+            }
         }
     }
     saveCart();
@@ -860,20 +886,31 @@ function updateCartQuantity(itemId, newQuantity) {
 }
 
 function removeCartItem(itemId) {
-    const [productId, size] = itemId.includes('_') ? itemId.split('_') : [itemId, null];
-    
-    if (size) {
-        cart.items = cart.items.filter(item => 
-            !(item.productId.id === productId && item.selectedSize === size)
-        );
-    } else {
-        cart.items = cart.items.filter(item => 
-            item.productId.id !== productId && !item.selectedSize
-        );
+    try {
+        // Support cartItemId removal if used
+        if (typeof itemId === 'string' && itemId.startsWith('ci_')) {
+            cart.items = cart.items.filter(item => item.cartItemId !== itemId);
+        } else {
+            const [productId, size] = itemId.includes('_') ? itemId.split('_') : [itemId, null];
+            
+            if (size) {
+                cart.items = cart.items.filter(item => {
+                    const pId = typeof item.productId === 'object' ? item.productId.id : item.productId;
+                    return !(pId === productId && item.selectedSize === size);
+                });
+            } else {
+                cart.items = cart.items.filter(item => {
+                    const pId = typeof item.productId === 'object' ? item.productId.id : item.productId;
+                    return pId !== productId && !item.selectedSize;
+                });
+            }
+        }
+        saveCart();
+        renderCart();
+        updateCartCount();
+    } catch (error) {
+        console.error('Error removing cart item:', error);
     }
-    saveCart();
-    renderCart();
-    updateCartCount();
 }
 
 function updateCartSummary() {
@@ -1969,18 +2006,24 @@ function setupBillModalListeners() {
         printBtn.addEventListener('click', () => {
             // Show bill section for printing
             const billSection = document.getElementById('billSection');
-            if (billSection) {
+            const billContent = document.getElementById('billContent');
+            
+            if (billSection && billContent) {
+                // Ensure billContent has the same content as modal
+                const billModalContent = document.getElementById('billModalContent');
+                if (billModalContent) {
+                    billContent.innerHTML = billModalContent.innerHTML;
+                }
+                
+                // Make billSection visible and properly positioned for print
                 billSection.style.display = 'block';
-                billSection.style.position = 'absolute';
-                billSection.style.left = '-9999px';
-                billSection.style.top = '-9999px';
                 billSection.style.visibility = 'visible';
             }
             
             // Close modal
             closeBillModal();
             
-            // Print after a short delay
+            // Print after a short delay to ensure content is ready
             setTimeout(() => {
                 window.print();
                 
@@ -1991,7 +2034,7 @@ function setupBillModalListeners() {
                         billSection.style.visibility = 'hidden';
                     }
                 }, 500);
-            }, 200);
+            }, 300);
         });
     }
 }
