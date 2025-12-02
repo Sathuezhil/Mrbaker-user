@@ -50,6 +50,33 @@
                 <div class="cart-items" id="cartItems">
                     <!-- Cart items will be rendered here -->
                 </div>
+                <div class="cart-customer-section">
+                    <label for="cartCustomerPhone">Customer Phone Number</label>
+                    <input type="tel" id="cartCustomerPhone" name="cartCustomerPhone"
+                           placeholder="Enter phone number" minlength="7" autocomplete="off">
+                    
+                    <!-- Loyalty Info Section -->
+                    <div id="cartLoyaltyInlineBox" class="loyalty-inline-box" style="display:none;">
+                        <div class="info-row">
+                            <span class="info-label">👤 Customer:</span>
+                            <span id="cartInlineCustomerName" class="info-value"></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">⭐ Points:</span>
+                            <span id="cartInlineLoyaltyPoints" class="info-value"></span>
+                        </div>
+                        <div class="info-row">
+                            <label for="cartPointsToUse" class="info-label">💳 Use Points:</label>
+                            <input type="number" id="cartPointsToUse" name="cartPointsToUse" 
+                                   min="0" step="1" placeholder="0" 
+                                   class="points-input" style="width: 80px; padding: 6px; border: 1px solid #ddd; border-radius: 4px; text-align: right;">
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">💰 Discount:</span>
+                            <span id="cartInlineLoyaltyDiscount" class="info-value"></span>
+                        </div>
+                    </div>
+                </div>
                 <div class="cart-summary">
                     <div class="summary-row">
                         <span>Subtotal:</span>
@@ -63,8 +90,10 @@
                         <span>Total:</span>
                         <span id="cartTotal">₹0.00</span>
                     </div>
-                    <button class="checkout-btn" id="checkoutBtn">Checkout</button>
-                    <button class="clear-cart-btn" id="clearCartBtn">Clear Cart</button>
+                    <div class="cart-actions">
+                        <button class="checkout-btn" id="checkoutBtn">Checkout</button>
+                        <button class="clear-cart-btn" id="clearCartBtn">Clear Cart</button>
+                    </div>
                 </div>
                 <div class="recent-orders-card">
                     <div class="recent-orders-header">
@@ -123,48 +152,51 @@
                         <span>Tax (5%):</span>
                         <span id="orderTax">₹0.00</span>
                     </div>
+                    <div class="summary-row">
+                        <span>Discount:</span>
+                        <span id="orderDiscount">₹0.00</span>
+                    </div>
                     <div class="summary-row total-row">
                         <span>Total:</span>
                         <span id="orderTotal">₹0.00</span>
                     </div>
                 </div>
                 <div class="payment-section">
-                    <label for="orderCustomerPhone">Customer Phone Number</label>
-                    <input type="tel" id="orderCustomerPhone" name="orderCustomerPhone"
-                           placeholder="Enter phone number" minlength="7" autocomplete="off">
-                    
-                    <label for="orderOrderType">Order Type</label>
-                    <select id="orderOrderType" name="orderOrderType">
-                        <option value="">Select order type</option>
-                        <option value="take-away">Take Away</option>
-                        <option value="dine-in">Dine In</option>
-                    </select>
-                    
-                    <label for="orderPaymentMethod">Payment Method</label>
-                    <select id="orderPaymentMethod">
-                        <option value="">Select payment method</option>
-                        <option value="Cash">Cash</option>
-                        <option value="Card">Card</option>
-                        <option value="paypal">PayPal</option>
-                    </select>
-                    <!-- Stripe Card Form (shown when Card is selected) -->
-                    <div id="stripeCardForm" class="stripe-card-form" style="display: none; margin-top: 15px;">
-                        <div class="stripe-field-group">
-                            <label for="stripeCardNumber">Card Number</label>
-                            <div id="stripeCardNumber" class="stripe-card-element"></div>
-                        </div>
-                        <div class="stripe-field-row">
-                            <div class="stripe-field-group">
-                                <label for="stripeCardExpiry">Expiry</label>
-                                <div id="stripeCardExpiry" class="stripe-card-element"></div>
+                           <div class="order-type-container">
+                            <label>Order Type</label>
+                        
+                            <div class="order-type-buttons">
+                                <button type="button" class="order-type-btn" data-type="take-away">
+                                    <span class="order-type-icon">🥡</span>
+                                    <span class="order-type-text">Take Away</span>
+                                </button>
+                        
+                                <button type="button" class="order-type-btn" data-type="dine-in">
+                                    <span class="order-type-icon">🍽️</span>
+                                    <span class="order-type-text">Dine In</span>
+                                </button>
                             </div>
-                            <div class="stripe-field-group">
-                                <label for="stripeCardCvc">CVC</label>
-                                <div id="stripeCardCvc" class="stripe-card-element"></div>
-                            </div>
+                        
+                            <input type="hidden" id="orderOrderType" name="orderOrderType">
                         </div>
-                        <div id="stripeCardErrors" class="stripe-card-errors"></div>
-                        <button type="button" id="addCardBtn" class="add-card-btn">Add Card</button>
+                        
+                    <div class="payment-method-container">
+                        <label>Payment Method</label>
+                        <div class="payment-method-buttons">
+                            <button type="button" class="payment-method-btn" data-method="Cash">
+                                <span class="payment-method-icon">💵</span>
+                                <span class="payment-method-text">Cash</span>
+                            </button>
+                            <button type="button" class="payment-method-btn" data-method="Card">
+                                <span class="payment-method-icon">💳</span>
+                                <span class="payment-method-text">Card</span>
+                            </button>
+                            <button type="button" class="payment-method-btn" data-method="paypal">
+                                <span class="payment-method-icon">🅿️</span>
+                                <span class="payment-method-text">PayPal</span>
+                            </button>
+                        </div>
+                        <input type="hidden" id="orderPaymentMethod" name="orderPaymentMethod">
                     </div>
                 </div>
             </div>
@@ -175,42 +207,7 @@
         </div>
     </div>
 
-    <!-- Loyalty Points Modal -->
-    <div id="loyaltyPointsModal" class="loyalty-points-modal" style="display: none;">
-        <div class="modal-overlay"></div>
-        <div class="modal-content loyalty-modal-content">
-            <div class="modal-header">
-                <h3>🎁 Loyalty Points Information</h3>
-                <button class="modal-close" id="closeLoyaltyModal">&times;</button>
-            </div>
-            <div class="modal-body loyalty-modal-body">
-                <div id="loyaltyCustomerInfo" class="loyalty-customer-info">
-                    <div class="info-row">
-                        <span class="info-label">👤 Customer:</span>
-                        <span id="loyaltyCustomerName" class="info-value"></span>
-                    </div>
-                    <div class="info-row">
-                        <span class="info-label">⭐ Loyalty Points:</span>
-                        <span id="loyaltyPointsDisplay" class="info-value points-value">0</span>
-                    </div>
-                    <div class="info-row">
-                        <span class="info-label">💰 Available Discount:</span>
-                        <span id="loyaltyDiscountDisplay" class="info-value discount-value">₹0.00</span>
-                    </div>
-                </div>
-                <div id="loyaltyLoading" class="loyalty-loading" style="display: none;">
-                    <p>Loading loyalty points...</p>
-                </div>
-                <div id="loyaltyNotFound" class="loyalty-not-found" style="display: none;">
-                    <p>Customer not found. You can continue without loyalty points.</p>
-                </div>
-            </div>
-            <div class="modal-footer loyalty-modal-footer">
-                <button type="button" class="continue-with-points-btn" id="continueWithPointsBtn" style="display: none;">Continue with Points</button>
-                <button type="button" class="continue-without-btn" id="continueWithoutBtn">Continue without Points</button>
-            </div>
-        </div>
-    </div>
+
 
     <!-- Invoice Preview Modal -->
     <div id="billModal" class="bill-modal" style="display: none;">
@@ -237,7 +234,59 @@
         </div>
     </div>
 
-    <script src="https://js.stripe.com/v3/"></script>
+    <!-- Logout Confirmation Modal -->
+    <div id="logoutModal" class="logout-confirmation-modal" style="display: none;">
+        <div class="modal-overlay"></div>
+        <div class="modal-content logout-modal-content">
+            <div class="modal-header">
+                <h3>🚪 Logout Confirmation</h3>
+                <button class="modal-close" id="closeLogoutModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="logout-message">Are you sure you want to logout?</p>
+            </div>
+            <div class="modal-footer logout-modal-footer">
+                <button type="button" class="cancel-btn" id="cancelLogoutBtn">Cancel</button>
+                <button type="button" class="confirm-logout-btn" id="confirmLogoutBtn">Logout</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cart Empty Modal -->
+    <div id="cartEmptyModal" class="logout-confirmation-modal" style="display: none;">
+        <div class="modal-overlay"></div>
+        <div class="modal-content logout-modal-content">
+            <div class="modal-header">
+                <h3>🛒 Cart Empty</h3>
+                <button class="modal-close" id="closeCartEmptyModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="logout-message">Your cart is empty. Please add products first.</p>
+            </div>
+            <div class="modal-footer logout-modal-footer">
+                <button type="button" class="confirm-logout-btn" id="cartEmptyOkBtn">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Clear Cart Modal -->
+    <div id="clearCartModal" class="logout-confirmation-modal" style="display: none;">
+        <div class="modal-overlay"></div>
+        <div class="modal-content logout-modal-content">
+            <div class="modal-header">
+                <h3>🧹 Clear Cart</h3>
+                <button class="modal-close" id="closeClearCartModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="logout-message">Are you sure you want to clear the cart?</p>
+            </div>
+            <div class="modal-footer logout-modal-footer">
+                <button type="button" class="cancel-btn" id="cancelClearCartBtn">Cancel</button>
+                <button type="button" class="confirm-logout-btn" id="confirmClearCartBtn">Clear Cart</button>
+            </div>
+        </div>
+    </div>
+
     <script src="scripts/product.js"></script>
 </body>
 </html>
