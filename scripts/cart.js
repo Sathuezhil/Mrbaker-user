@@ -1,13 +1,6 @@
 let cart = { items: [] };
 let currentUser = null;
 let paymentMethodSelect = null;
-let stripe = null;
-let stripeCardNumber = null;
-let stripeCardExpiry = null;
-let stripeCardCvc = null;
-let stripeCardForm = null;
-let stripeCardErrors = null;
-let stripePublicKey = null;
 
 window.addEventListener('DOMContentLoaded', () => {
     // Clear any legacy login persistence so a fresh app launch requires authentication
@@ -28,15 +21,13 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 
     paymentMethodSelect = document.getElementById('paymentMethod');
-    stripeCardForm = document.getElementById('stripeCardForm');
-    stripeCardErrors = document.getElementById('stripeCardErrors');
 
     loadCart();
     renderCart();
     setupEventListeners();
     setupModalListeners();
     setupPhoneModalListeners();
-    initializeStripe();
+    setupOrderTypeButtons();
 });
 
 function loadCart() {
@@ -183,41 +174,17 @@ function setupEventListeners() {
     const clearBtnEl = document.getElementById('clearBtn');
 
     // Payment method change listener
-    if (paymentMethodSelect) {
-        paymentMethodSelect.addEventListener('change', async (e) => {
-            const selectedMethod = e.target.value;
-            if (selectedMethod === 'Card') {
-                stripeCardForm.style.display = 'block';
-                // Wait for Stripe to initialize if not ready
-                if (!stripe) {
-                    await initializeStripe();
-                }
-                if (stripe && !stripeCardNumber) {
-                    setupStripeCardElement();
-                }
-            } else {
-                stripeCardForm.style.display = 'none';
-                // Reset Stripe payment method when switching away
-                window.stripePaymentMethodId = null;
-                const addCardBtn = document.getElementById('addCardBtn');
-                if (addCardBtn) {
-                    addCardBtn.textContent = 'Add Card';
-                }
-            }
-        });
-    }
-
-    // Add card button listener
-    const addCardBtn = document.getElementById('addCardBtn');
-    if (addCardBtn) {
-        addCardBtn.addEventListener('click', async () => {
-            await handleStripeCardAdd();
-        });
-    }
+    // Stripe/Card UI removed – if you want to support card later,
+    // handle it via backend or another provider here.
 
     purchaseBtnEl.addEventListener('click', async () => {
         if (!cart || !cart.items || cart.items.length === 0) {
-            alert('Your cart is empty. Please add products first.');
+            const cartEmptyModal = document.getElementById('cartEmptyModal');
+            if (cartEmptyModal) {
+                cartEmptyModal.style.display = 'flex';
+            } else {
+                alert('Your cart is empty. Please add products first.');
+            }
             return;
         }
 
@@ -248,10 +215,55 @@ function setupEventListeners() {
         window.location.href = 'product.html';
     });
 
-    document.getElementById('logoutBtn').addEventListener('click', () => {
+    // Logout Modal Functions
+    function showLogoutModal() {
+        const modal = document.getElementById('logoutModal');
+        if (modal) {
+            modal.style.display = 'flex';
+        }
+    }
+
+    function hideLogoutModal() {
+        const modal = document.getElementById('logoutModal');
+        if (modal) {
+            modal.style.display = 'none';
+        }
+    }
+
+    function confirmLogout() {
         sessionStorage.removeItem('user');
         window.location.href = 'index.html';
+    }
+
+    // Setup logout modal event listeners
+    document.getElementById('logoutBtn').addEventListener('click', () => {
+        showLogoutModal();
     });
+
+    const closeLogoutModal = document.getElementById('closeLogoutModal');
+    const cancelLogoutBtn = document.getElementById('cancelLogoutBtn');
+    const confirmLogoutBtn = document.getElementById('confirmLogoutBtn');
+
+    if (closeLogoutModal) {
+        closeLogoutModal.addEventListener('click', hideLogoutModal);
+    }
+
+    if (cancelLogoutBtn) {
+        cancelLogoutBtn.addEventListener('click', hideLogoutModal);
+    }
+
+    if (confirmLogoutBtn) {
+        confirmLogoutBtn.addEventListener('click', confirmLogout);
+    }
+
+    // Close modal when clicking overlay
+    const logoutModal = document.getElementById('logoutModal');
+    if (logoutModal) {
+        const overlay = logoutModal.querySelector('.modal-overlay');
+        if (overlay) {
+            overlay.addEventListener('click', hideLogoutModal);
+        }
+    }
 }
 
 // Show phone number modal
@@ -884,13 +896,9 @@ async function triggerCheckoutFlow() {
         return;
     }
 
-    if (method === 'Card') {
-        await processStripePayment();
-    } else {
-        await savePaymentRecord(method);
-        await savePosOrder(method, currentOrderType || 'take-away'); // Save POS order with selected order type
-        // Bill generation disabled — no modal will be shown
-    }
+    // Directly save POS order (no separate /payments API)
+    await savePosOrder(method, currentOrderType || 'take-away'); // Save POS order with selected order type
+    // Bill generation disabled — no modal will be shown
 }
 
 // Bill generation is disabled. Keeping a no-op function to avoid runtime errors if called.
@@ -1102,303 +1110,7 @@ function safePrintBill(targetEl) {
 
 // Bill modal and print helpers restored — invoice UI shown in modal
 
-// Stripe Integration Functions
-async function initializeStripe() {
-    try {
-        // First, ensure Stripe keys exist in backend
-        await ensureStripeKeys();
-        
-        // Fetch Stripe public key
-        const publicKey = await getStripePublicKey();
-        if (publicKey) {
-            stripePublicKey = publicKey;
-            stripe = Stripe(publicKey);
-            console.log('Stripe initialized successfully');
-        } else {
-            console.error('Failed to get Stripe public key');
-        }
-    } catch (error) {
-        console.error('Error initializing Stripe:', error);
-    }
-}
-
-async function ensureStripeKeys() {
-    try {
-        const branchId = currentUser.branchId;
-        if (!branchId) {
-            console.error('Branch ID not found');
-            return;
-        }
-
-        // Check if keys exist
-        const response = await fetch(`https://api.mr-bakers.com/api/stripe-keys/${branchId}`, {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-            }
-        });
-
-        if (response.ok) {
-            const data = await response.json();
-            if (data.stripePublicKey) {
-                console.log('Stripe keys already exist');
-                return;
-            }
-        }
-
-        // Keys don't exist, create them
-        const userToken = currentUser.token;
-        const createResponse = await fetch('https://api.mr-bakers.com/api/stripe-keys', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': userToken ? `Bearer ${userToken}` : ''
-            },
-            body: JSON.stringify({
-                branchId: branchId,
-                stripePublicKey: 'pk_test_51SFF7NRSKi9P4SsbBZEIzebwnEMiiqSGxfSANV7DJAOdz6WXOOWwLDV1E5ufTtluui9NJzz0fetEOrvxwJJ2lLEk00JOnDkjtv'
-                // Note: stripeSecretKey should be configured securely on backend, not sent from frontend
-            })
-        });
-
-        if (createResponse.ok) {
-            console.log('Stripe keys created successfully');
-        } else {
-            const errorData = await createResponse.json();
-            console.error('Failed to create Stripe keys:', errorData);
-        }
-    } catch (error) {
-        console.error('Error ensuring Stripe keys:', error);
-    }
-}
-
-async function getStripePublicKey() {
-    try {
-        const branchId = currentUser.branchId;
-        if (!branchId) {
-            console.error('Branch ID not found');
-            return null;
-        }
-
-        const response = await fetch(`https://api.mr-bakers.com/api/stripe-keys/${branchId}`, {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-            }
-        });
-
-        if (response.ok) {
-            const data = await response.json();
-            return data.stripePublicKey || 'pk_test_51SFF7NRSKi9P4SsbBZEIzebwnEMiiqSGxfSANV7DJAOdz6WXOOWwLDV1E5ufTtluui9NJzz0fetEOrvxwJJ2lLEk00JOnDkjtv';
-        } else {
-            // Fallback to provided key
-            return 'pk_test_51SFF7NRSKi9P4SsbBZEIzebwnEMiiqSGxfSANV7DJAOdz6WXOOWwLDV1E5ufTtluui9NJzz0fetEOrvxwJJ2lLEk00JOnDkjtv';
-        }
-    } catch (error) {
-        console.error('Error fetching Stripe public key:', error);
-        // Fallback to provided key
-        return 'pk_test_51SFF7NRSKi9P4SsbBZEIzebwnEMiiqSGxfSANV7DJAOdz6WXOOWwLDV1E5ufTtluui9NJzz0fetEOrvxwJJ2lLEk00JOnDkjtv';
-    }
-}
-
-function setupStripeCardElement() {
-    if (!stripe) {
-        console.error('Stripe not initialized');
-        return;
-    }
-
-    const elements = stripe.elements();
-    const style = {
-        base: {
-            fontSize: '16px',
-            color: '#333333',
-            fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif',
-            '::placeholder': {
-                color: '#999999'
-            }
-        },
-        invalid: {
-            color: '#fa755a',
-            iconColor: '#fa755a'
-        }
-    };
-
-    // Create card number element
-    const cardNumberElement = elements.create('cardNumber', { style });
-    cardNumberElement.mount('#stripeCardNumber');
-    stripeCardNumber = cardNumberElement;
-
-    // Create expiry element
-    const cardExpiryElement = elements.create('cardExpiry', { style });
-    cardExpiryElement.mount('#stripeCardExpiry');
-    stripeCardExpiry = cardExpiryElement;
-
-    // Create CVV element
-    const cardCvcElement = elements.create('cardCvc', { style });
-    cardCvcElement.mount('#stripeCardCvc');
-    stripeCardCvc = cardCvcElement;
-
-    // Listen for errors on all elements
-    const handleError = (event) => {
-        if (event.error) {
-            stripeCardErrors.textContent = event.error.message;
-            stripeCardErrors.style.display = 'block';
-        } else {
-            stripeCardErrors.textContent = '';
-            stripeCardErrors.style.display = 'none';
-        }
-    };
-
-    cardNumberElement.on('change', handleError);
-    cardExpiryElement.on('change', handleError);
-    cardCvcElement.on('change', handleError);
-}
-
-async function handleStripeCardAdd() {
-    if (!stripe || !stripeCardNumber || !stripeCardExpiry || !stripeCardCvc) {
-        alert('Stripe is not initialized. Please refresh the page.');
-        return;
-    }
-
-    const addCardBtn = document.getElementById('addCardBtn');
-    addCardBtn.disabled = true;
-    addCardBtn.textContent = 'Processing...';
-
-    try {
-        // Create payment method using separate card elements
-        const { paymentMethod, error } = await stripe.createPaymentMethod({
-            type: 'card',
-            card: stripeCardNumber,
-            billing_details: {
-                // Optional: Add billing details if needed
-            }
-        });
-
-        if (error) {
-            stripeCardErrors.textContent = error.message;
-            stripeCardErrors.style.display = 'block';
-            addCardBtn.disabled = false;
-            addCardBtn.textContent = 'Add Card';
-            return;
-        }
-
-        // Card added successfully
-        stripeCardErrors.textContent = 'Card added successfully!';
-        stripeCardErrors.style.display = 'block';
-        stripeCardErrors.style.color = '#28a745';
-        
-        // Store payment method ID for later use
-        window.stripePaymentMethodId = paymentMethod.id;
-        
-        addCardBtn.disabled = false;
-        addCardBtn.textContent = 'Card Added ✓';
-        
-        setTimeout(() => {
-            stripeCardErrors.textContent = '';
-            stripeCardErrors.style.display = 'none';
-        }, 3000);
-    } catch (error) {
-        console.error('Error adding card:', error);
-        stripeCardErrors.textContent = 'An error occurred. Please try again.';
-        stripeCardErrors.style.display = 'block';
-        addCardBtn.disabled = false;
-        addCardBtn.textContent = 'Add Card';
-    }
-}
-
-async function processStripePayment() {
-    if (!stripe || !stripeCardNumber || !stripeCardExpiry || !stripeCardCvc) {
-        alert('Stripe card form is not ready. Please add a card first.');
-        window.allowBillGeneration = false;
-        return;
-    }
-
-    const purchaseBtn = document.getElementById('purchaseBtn');
-    purchaseBtn.disabled = true;
-    purchaseBtn.textContent = 'Processing Payment...';
-
-    if (!window.allowBillGeneration) {
-        purchaseBtn.disabled = false;
-        purchaseBtn.textContent = 'Purchase';
-        return;
-    }
-
-    try {
-        const subtotal = cart.items.reduce((sum, item) => {
-            return sum + (item.productId.price * item.quantity);
-        }, 0);
-        const tax = subtotal * 0.05;
-        const total = subtotal + tax;
-
-        // Convert to paise (Stripe uses smallest currency unit - for INR, it's paise)
-        const amountInPaise = Math.round(total * 100);
-
-        // Create payment method if not already created
-        let paymentMethodId = window.stripePaymentMethodId;
-        if (!paymentMethodId) {
-            const { paymentMethod, error } = await stripe.createPaymentMethod({
-                type: 'card',
-                card: stripeCardNumber,
-                billing_details: {
-                    // Optional: Add billing details if needed
-                }
-            });
-
-            if (error) {
-                stripeCardErrors.textContent = error.message;
-                stripeCardErrors.style.display = 'block';
-                purchaseBtn.disabled = false;
-                purchaseBtn.textContent = 'Purchase';
-                return;
-            }
-            paymentMethodId = paymentMethod.id;
-        }
-
-        // Process payment - card is already validated through createPaymentMethod
-        try {
-            // Validate that payment method was created successfully
-            if (!paymentMethodId) {
-                throw new Error('Payment method not created');
-            }
-
-            // Payment method creation means card is valid
-            // Save payment record to backend
-            await savePaymentRecord('Card');
-            // Save POS order to backend
-            await savePosOrder('Card', currentOrderType || 'take-away');
-
-            // Payment successful - bill generation disabled
-            window.allowBillGeneration = false;
-            
-            // Reset Stripe form
-            if (stripeCardNumber) {
-                stripeCardNumber.clear();
-            }
-            if (stripeCardExpiry) {
-                stripeCardExpiry.clear();
-            }
-            if (stripeCardCvc) {
-                stripeCardCvc.clear();
-            }
-            window.stripePaymentMethodId = null;
-            const addCardBtn = document.getElementById('addCardBtn');
-            if (addCardBtn) {
-                addCardBtn.textContent = 'Add Card';
-            }
-            
-        } catch (validationError) {
-            throw new Error('Payment validation failed: ' + validationError.message);
-        }
-        
-    } catch (error) {
-        console.error('Payment error:', error);
-        stripeCardErrors.textContent = error.message || 'Payment failed. Please try again.';
-        stripeCardErrors.style.display = 'block';
-        purchaseBtn.disabled = false;
-        purchaseBtn.textContent = 'Purchase';
-        window.allowBillGeneration = false;
-    }
-}
+// Stripe integration removed from POS (card payments must be handled externally)
 
 // Map payment method to POS order schema format (lowercase for schema)
 function mapPaymentTypeToSchema(paymentMethod) {
@@ -1618,57 +1330,28 @@ async function updateBillImage(orderId, billImage) {
     }
 }
 
-// Save payment record to backend
-async function savePaymentRecord(paymentMethod) {
-    try {
-        const subtotal = cart.items.reduce((sum, item) => {
-            return sum + (item.productId.price * item.quantity);
-        }, 0);
-        const tax = subtotal * 0.05;
-        const total = subtotal + tax;
-
-        const userToken = currentUser.token;
-        const userId = currentUser.id;
-
-        // Map payment method to backend format - backend expects capitalized format like "Cash", "Card", "PayPal"
-        const paymentMap = {
-            'Cash': 'Cash',
-            'Card': 'Card',
-            'card': 'Card',
-            'cash': 'Cash',
-            'paypal': 'PayPal',
-            'PayPal': 'PayPal'
-        };
-        const mappedMethod = paymentMap[paymentMethod] || paymentMethod;
-
-        const paymentData = {
-            user: userId,
-            method: mappedMethod,
-            amount: total,
-            date: new Date().toISOString()
-        };
-
-        console.log('Saving payment record to backend:', paymentData);
-
-        const paymentResponse = await fetch('https://api.mr-bakers.com/api/payments', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': userToken ? `Bearer ${userToken}` : '',
-                'Accept': 'application/json'
-            },
-            body: JSON.stringify(paymentData)
+// Setup order type buttons - moved inside DOMContentLoaded
+function setupOrderTypeButtons() {
+    const orderTypeButtons = document.querySelectorAll('.order-type-btn');
+    const hiddenInput = document.getElementById('orderOrderType');
+    
+    if (orderTypeButtons.length > 0 && hiddenInput) {
+        orderTypeButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                // Remove active class from all buttons
+                orderTypeButtons.forEach(b => b.classList.remove('active'));
+                
+                // Add active class to clicked button
+                btn.classList.add('active');
+                
+                // Set hidden input value
+                const orderType = btn.getAttribute('data-type');
+                hiddenInput.value = orderType;
+                
+                // Update currentOrderType variable
+                currentOrderType = orderType;
+            });
         });
-
-        if (!paymentResponse.ok) {
-            console.warn('Failed to save payment record');
-        } else {
-            const paymentData = await paymentResponse.json();
-            console.log('Payment record saved:', paymentData);
-        }
-    } catch (error) {
-        console.error('Error saving payment record:', error);
-        // Continue even if payment record save fails
     }
 }
 

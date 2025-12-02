@@ -7,13 +7,7 @@ let cart = { items: [] };
 let currentUser = null;
 let recentOrders = [];
 
-// Stripe variables (from cart.js)
-let stripePublicKey = null;
-let stripe = null;
-let stripeCardNumber = null;
-let stripeCardExpiry = null;
-let stripeCardCvc = null;
-let stripeCardErrors = null;
+// Payment method variables
 
 function capitalizeWords(text = '') {
     return String(text)
@@ -235,7 +229,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     setupCartListeners();
     setupSizeModalListeners();
     setupOrderSummaryModalListeners();
-    setupLoyaltyPointsModalListeners();
+    // Loyalty points modal removed in new flow; no setup needed
     setupBillModalListeners();
 
     const refreshOrdersBtn = document.getElementById('refreshOrdersBtn');
@@ -684,25 +678,45 @@ function addProductToCart(productId, product, cartPrice, selectedSize, selectedS
         }
     }
     
-    // Always add a new cart entry for POS usage (don't merge identical products)
-    const cartItemId = `ci_${Date.now()}_${Math.floor(Math.random()*10000)}`;
-    cart.items.push({
-        cartItemId: cartItemId,
-        productId: {
-            _id: product._id,
-            id: product.id,
-            name: product.name,
-            price: finalPrice,
-            prices: product.prices || null,
-            hasMultiplePrices: product.hasMultiplePrices || false,
-            image: product.image || '',
-            categoryName: product.categoryName || '',
-            productTypeName: product.productTypeName || ''
-        },
-        selectedSize: finalSize,
-        selectedSizeText: finalSizeText,
-        quantity: 1
+    // Merge with existing cart entry if same product + same size already exists
+    const existingItem = cart.items.find(item => {
+        if (!item || !item.productId) return false;
+        const p = item.productId;
+        const sameProduct =
+            (p._id && product._id && String(p._id) === String(product._id)) ||
+            (p.id && product.id && String(p.id) === String(product.id));
+        const sameSize = (item.selectedSize || null) === (finalSize || null);
+        return sameProduct && sameSize;
     });
+
+    if (existingItem) {
+        // Increase quantity of existing item
+        existingItem.quantity = (existingItem.quantity || 0) + 1;
+        // Ensure price/size text stay in sync with latest selection
+        existingItem.productId.price = finalPrice;
+        existingItem.selectedSize = finalSize;
+        existingItem.selectedSizeText = finalSizeText;
+    } else {
+        // First time adding this product(+size) → create new cart entry
+        const cartItemId = `ci_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+        cart.items.push({
+            cartItemId: cartItemId,
+            productId: {
+                _id: product._id,
+                id: product.id,
+                name: product.name,
+                price: finalPrice,
+                prices: product.prices || null,
+                hasMultiplePrices: product.hasMultiplePrices || false,
+                image: product.image || '',
+                categoryName: product.categoryName || '',
+                productTypeName: product.productTypeName || ''
+            },
+            selectedSize: finalSize,
+            selectedSizeText: finalSizeText,
+            quantity: 1
+        });
+    }
     
     saveCart();
     renderCart();
@@ -930,7 +944,8 @@ function updateCartSummary() {
         return sum + (price * quantity);
     }, 0);
     const tax = subtotal * 0.05;
-    const total = subtotal + tax;
+    const discount = loyaltyDiscount || 0; // Use loyalty discount from points
+    const total = Math.max(0, subtotal + tax - discount);
 
     const subtotalEl = document.getElementById('cartSubtotal');
     const taxEl = document.getElementById('cartTax');
@@ -1010,14 +1025,166 @@ async function loadRecentOrders(showLoading = true) {
     }
 }
 
+// Inline Loyalty Elements
+let inlineCustomerName = null;
+let inlineLoyaltyPoints = null;
+let inlineLoyaltyDiscount = null;
+let loyaltyInlineBox = null;
+
+// Cart Loyalty Elements
+let cartInlineCustomerName = null;
+let cartInlineLoyaltyPoints = null;
+let cartInlineLoyaltyDiscount = null;
+let cartLoyaltyInlineBox = null;
+
+// Attach after DOM loaded
+window.addEventListener('DOMContentLoaded', () => {
+    inlineCustomerName = document.getElementById('inlineCustomerName');
+    inlineLoyaltyPoints = document.getElementById('inlineLoyaltyPoints');
+    inlineLoyaltyDiscount = document.getElementById('inlineLoyaltyDiscount');
+    loyaltyInlineBox = document.getElementById('loyaltyInlineBox');
+    
+    cartInlineCustomerName = document.getElementById('cartInlineCustomerName');
+    cartInlineLoyaltyPoints = document.getElementById('cartInlineLoyaltyPoints');
+    cartInlineLoyaltyDiscount = document.getElementById('cartInlineLoyaltyDiscount');
+    cartLoyaltyInlineBox = document.getElementById('cartLoyaltyInlineBox');
+});
+
+// LIVE Fetch on phone input (for order summary modal)
+// Note: Loyalty info is no longer displayed in order summary modal, only in cart section
+async function handleInlinePhoneInput(phone) {
+    // Order summary modal no longer shows loyalty info, so this function does nothing
+    // Loyalty info is only handled in cart section via handleCartPhoneInput
+    return;
+}
+
+// LIVE Fetch on phone input (for cart sidebar)
+async function handleCartPhoneInput(phone) {
+    const clean = phone.replace(/[^0-9]/g, '');
+    
+    // Ensure cart inline elements exist
+    if (!cartInlineCustomerName || !cartInlineLoyaltyPoints || !cartInlineLoyaltyDiscount || !cartLoyaltyInlineBox) {
+        console.warn('Cart loyalty inline elements not found');
+        return;
+    }
+    
+    await updateLoyaltyInfo(clean, {
+        customerNameEl: cartInlineCustomerName,
+        loyaltyPointsEl: cartInlineLoyaltyPoints,
+        loyaltyDiscountEl: cartInlineLoyaltyDiscount,
+        loyaltyBoxEl: cartLoyaltyInlineBox
+    });
+}
+
+// Common function to update loyalty info for both cart and order summary
+async function updateLoyaltyInfo(cleanPhone, elements) {
+    const { customerNameEl, loyaltyPointsEl, loyaltyDiscountEl, loyaltyBoxEl } = elements;
+    
+    if (cleanPhone.length < 7) {
+        // Reset loyalty + totals when input is too short
+        loyaltyDiscount = 0;
+        currentCustomerData = null;
+        currentLoyaltyPoints = 0;
+        if (loyaltyBoxEl) loyaltyBoxEl.style.display = 'none';
+        updateOrderSummaryTotals();
+        updateCartSummary();
+        return;
+    }
+
+    try {
+        // Step 1: Fetch customer by phone number
+        const customer = await fetchCustomerByPhone(cleanPhone);
+        if (!customer) {
+            // Customer not found - hide loyalty box
+            if (loyaltyBoxEl) loyaltyBoxEl.style.display = 'none';
+            currentCustomerData = null;
+            currentLoyaltyPoints = 0;
+            loyaltyDiscount = 0;
+            updateOrderSummaryTotals();
+            updateCartSummary();
+            return;
+        }
+
+        // Step 2: Get customer ID
+        const customerId = customer._id || customer.id;
+        if (!customerId) {
+            console.error('Customer ID not found in customer object');
+            if (loyaltyBoxEl) loyaltyBoxEl.style.display = 'none';
+            return;
+        }
+
+        // Step 3: Fetch loyalty points for this customer
+        console.log('Fetching loyalty points for customer ID:', customerId);
+        const points = await fetchLoyaltyPoints(customerId);
+        console.log('Fetched loyalty points:', points);
+
+        // Step 4: Calculate discount from points (will be updated when user enters points to use)
+        const subtotal = cart.items.reduce((sum, i) => sum + (i.productId.price * i.quantity), 0);
+        const tax = subtotal * 0.05;
+        const totalBeforeDiscount = subtotal + tax;
+        // Initial discount is 0, will be calculated when user enters points
+        const discount = 0;
+
+        // Step 5: Build friendly customer name
+        let customerName = 'Customer';
+        if (customer.firstName && customer.lastName) {
+            customerName = `${customer.firstName} ${customer.lastName}`;
+        } else if (customer.firstName) {
+            customerName = customer.firstName;
+        } else if (customer.name) {
+            customerName = customer.name;
+        } else if (customer.username) {
+            customerName = customer.username;
+        }
+
+        // Step 6: Update UI with customer and loyalty data
+        if (customerNameEl) customerNameEl.textContent = customerName;
+        if (loyaltyPointsEl) loyaltyPointsEl.textContent = points || 0;
+        if (loyaltyDiscountEl) loyaltyDiscountEl.textContent = `₹${discount.toFixed(2)}`;
+        if (loyaltyBoxEl) loyaltyBoxEl.style.display = 'block';
+
+        // Step 7: Store in global variables
+        currentCustomerData = customer;
+        currentLoyaltyPoints = points || 0;
+        loyaltyDiscount = 0; // Will be updated when user enters points to use
+        pointsToUse = 0; // Reset points to use
+        
+        // Reset points input
+        const cartPointsInput = document.getElementById('cartPointsToUse');
+        if (cartPointsInput) {
+            cartPointsInput.value = '';
+            cartPointsInput.max = points || 0; // Set max to available points
+        }
+
+        // Step 8: Update totals
+        updateOrderSummaryTotals();
+        updateCartSummary();
+        
+        console.log('Loyalty data updated:', {
+            customer: customerName,
+            points: points,
+            discount: discount
+        });
+    } catch (error) {
+        console.error('Error in updateLoyaltyInfo:', error);
+        if (loyaltyBoxEl) loyaltyBoxEl.style.display = 'none';
+        currentCustomerData = null;
+        currentLoyaltyPoints = 0;
+        loyaltyDiscount = 0;
+        updateOrderSummaryTotals();
+        updateCartSummary();
+    }
+}
+
 function setupCartListeners() {
     const checkoutBtn = document.getElementById('checkoutBtn');
     const clearCartBtn = document.getElementById('clearCartBtn');
+    const cartPhoneInput = document.getElementById('cartCustomerPhone');
 
     if (checkoutBtn) {
         checkoutBtn.addEventListener('click', () => {
             if (!cart || !cart.items || cart.items.length === 0) {
-                alert('Your cart is empty. Please add products first.');
+                showCartEmptyModal();
                 return;
             }
             showOrderSummaryModal();
@@ -1026,12 +1193,50 @@ function setupCartListeners() {
 
     if (clearCartBtn) {
         clearCartBtn.addEventListener('click', () => {
-            if (confirm('Are you sure you want to clear the cart?')) {
-                cart = { items: [] };
-                saveCart();
-                renderCart();
-                updateCartCount();
+            if (!cart || !cart.items || cart.items.length === 0) {
+                return;
             }
+            showClearCartModal();
+        });
+    }
+
+    // Setup cart phone input listener
+    if (cartPhoneInput) {
+        cartPhoneInput.addEventListener('input', (e) => {
+            e.target.value = e.target.value.replace(/[^0-9]/g, '');
+            handleCartPhoneInput(e.target.value);
+        });
+    }
+
+    // Setup cart points to use input listener
+    const cartPointsToUseInput = document.getElementById('cartPointsToUse');
+    if (cartPointsToUseInput) {
+        cartPointsToUseInput.addEventListener('input', (e) => {
+            const enteredPoints = parseInt(e.target.value) || 0;
+            const maxPoints = currentLoyaltyPoints || 0;
+            const subtotal = cart.items.reduce((sum, i) => sum + (i.productId.price * i.quantity), 0);
+            const tax = subtotal * 0.05;
+            const totalBeforeDiscount = subtotal + tax;
+            
+            // Limit points to available points and total amount
+            const maxUsablePoints = Math.min(maxPoints, totalBeforeDiscount);
+            const pointsToUseValue = Math.min(enteredPoints, maxUsablePoints);
+            
+            if (enteredPoints > maxUsablePoints) {
+                e.target.value = maxUsablePoints;
+            }
+            
+            pointsToUse = pointsToUseValue;
+            loyaltyDiscount = pointsToUseValue;
+            
+            // Update discount display
+            const cartDiscountEl = document.getElementById('cartInlineLoyaltyDiscount');
+            if (cartDiscountEl) {
+                cartDiscountEl.textContent = `₹${loyaltyDiscount.toFixed(2)}`;
+            }
+            
+            // Update cart summary
+            updateCartSummary();
         });
     }
 }
@@ -1040,10 +1245,138 @@ function setupCartListeners() {
 window.updateCartQuantity = updateCartQuantity;
 window.removeCartItem = removeCartItem;
 
-document.getElementById('logoutBtn').addEventListener('click', () => {
+// Logout Modal Functions
+function showLogoutModal() {
+    const modal = document.getElementById('logoutModal');
+    if (modal) {
+        modal.style.display = 'flex';
+    }
+}
+
+function hideLogoutModal() {
+    const modal = document.getElementById('logoutModal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+function confirmLogout() {
     sessionStorage.removeItem('user');
     window.location.href = 'index.html';
+}
+
+// Setup logout modal event listeners
+document.getElementById('logoutBtn').addEventListener('click', () => {
+    showLogoutModal();
 });
+
+const closeLogoutModal = document.getElementById('closeLogoutModal');
+const cancelLogoutBtn = document.getElementById('cancelLogoutBtn');
+const confirmLogoutBtn = document.getElementById('confirmLogoutBtn');
+
+if (closeLogoutModal) {
+    closeLogoutModal.addEventListener('click', hideLogoutModal);
+}
+
+if (cancelLogoutBtn) {
+    cancelLogoutBtn.addEventListener('click', hideLogoutModal);
+}
+
+if (confirmLogoutBtn) {
+    confirmLogoutBtn.addEventListener('click', confirmLogout);
+}
+
+// Close modal when clicking overlay
+const logoutModal = document.getElementById('logoutModal');
+if (logoutModal) {
+    const overlay = logoutModal.querySelector('.modal-overlay');
+    if (overlay) {
+        overlay.addEventListener('click', hideLogoutModal);
+    }
+}
+
+// Cart Empty Modal (same style as logout)
+function showCartEmptyModal() {
+    const modal = document.getElementById('cartEmptyModal');
+    if (modal) {
+        modal.style.display = 'flex';
+    }
+}
+
+function hideCartEmptyModal() {
+    const modal = document.getElementById('cartEmptyModal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+const closeCartEmptyModalBtn = document.getElementById('closeCartEmptyModal');
+const cartEmptyOkBtn = document.getElementById('cartEmptyOkBtn');
+
+if (closeCartEmptyModalBtn) {
+    closeCartEmptyModalBtn.addEventListener('click', hideCartEmptyModal);
+}
+
+if (cartEmptyOkBtn) {
+    cartEmptyOkBtn.addEventListener('click', hideCartEmptyModal);
+}
+
+const cartEmptyModal = document.getElementById('cartEmptyModal');
+if (cartEmptyModal) {
+    const cartOverlay = cartEmptyModal.querySelector('.modal-overlay');
+    if (cartOverlay) {
+        cartOverlay.addEventListener('click', hideCartEmptyModal);
+    }
+}
+
+// Clear Cart Modal (same style as logout)
+function showClearCartModal() {
+    const modal = document.getElementById('clearCartModal');
+    if (modal) {
+        modal.style.display = 'flex';
+    }
+}
+
+function hideClearCartModal() {
+    const modal = document.getElementById('clearCartModal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+function clearCartAndRefresh() {
+    cart = { items: [] };
+    saveCart();
+    renderCart();
+    updateCartCount();
+}
+
+const closeClearCartModalBtn = document.getElementById('closeClearCartModal');
+const cancelClearCartBtn = document.getElementById('cancelClearCartBtn');
+const confirmClearCartBtn = document.getElementById('confirmClearCartBtn');
+
+if (closeClearCartModalBtn) {
+    closeClearCartModalBtn.addEventListener('click', hideClearCartModal);
+}
+
+if (cancelClearCartBtn) {
+    cancelClearCartBtn.addEventListener('click', hideClearCartModal);
+}
+
+if (confirmClearCartBtn) {
+    confirmClearCartBtn.addEventListener('click', () => {
+        clearCartAndRefresh();
+        hideClearCartModal();
+    });
+}
+
+const clearCartModal = document.getElementById('clearCartModal');
+if (clearCartModal) {
+    const clearOverlay = clearCartModal.querySelector('.modal-overlay');
+    if (clearOverlay) {
+        clearOverlay.addEventListener('click', hideClearCartModal);
+    }
+}
 
 // Order Summary Modal Functions
 function showOrderSummaryModal() {
@@ -1054,7 +1387,7 @@ function showOrderSummaryModal() {
     
     // Calculate order totals
     if (!cart || !cart.items || cart.items.length === 0) {
-        alert('Your cart is empty. Please add products first.');
+        showCartEmptyModal();
         return;
     }
     
@@ -1076,14 +1409,42 @@ function showOrderSummaryModal() {
     if (paymentMethod) {
         paymentMethod.value = '';
     }
-
-    const phoneInput = document.getElementById('orderCustomerPhone');
-    if (phoneInput) {
-        phoneInput.value = '';
-    }
+    
+    // Reset payment method buttons - remove active class from all
+    const paymentMethodButtons = modal.querySelectorAll('.payment-method-btn');
+    paymentMethodButtons.forEach(btn => {
+        btn.classList.remove('active');
+    });
     const orderTypeSelect = document.getElementById('orderOrderType');
     if (orderTypeSelect) {
         orderTypeSelect.value = '';
+    }
+    
+    // Reset order type buttons - remove active class from all
+    const orderTypeButtons = modal.querySelectorAll('.order-type-btn');
+    orderTypeButtons.forEach(btn => {
+        btn.classList.remove('active');
+    });
+    
+    // Set default to take-away if no selection
+    if (orderTypeButtons.length > 0 && !selectedOrderType) {
+        const takeAwayBtn = Array.from(orderTypeButtons).find(btn => btn.getAttribute('data-type') === 'take-away');
+        if (takeAwayBtn) {
+            takeAwayBtn.classList.add('active');
+            if (orderTypeSelect) {
+                orderTypeSelect.value = 'take-away';
+            }
+            selectedOrderType = 'take-away';
+        }
+    } else if (selectedOrderType) {
+        // Restore previous selection
+        const selectedBtn = Array.from(orderTypeButtons).find(btn => btn.getAttribute('data-type') === selectedOrderType);
+        if (selectedBtn) {
+            selectedBtn.classList.add('active');
+            if (orderTypeSelect) {
+                orderTypeSelect.value = selectedOrderType;
+            }
+        }
     }
     
     // Show modal
@@ -1106,7 +1467,6 @@ function setupOrderSummaryModalListeners() {
     const purchaseBtn = document.getElementById('orderPurchaseBtn');
     const clearBtn = document.getElementById('orderClearBtn');
     const paymentMethodSelect = document.getElementById('orderPaymentMethod');
-    const phoneInput = document.getElementById('orderCustomerPhone');
     const orderTypeSelect = document.getElementById('orderOrderType');
     const overlay = modal ? modal.querySelector('.modal-overlay') : null;
     
@@ -1119,44 +1479,54 @@ function setupOrderSummaryModalListeners() {
     if (closeBtn) closeBtn.addEventListener('click', closeHandler);
     if (overlay) overlay.addEventListener('click', closeHandler);
     
-    // Payment method change listener - show/hide Stripe form
-    if (paymentMethodSelect) {
-        paymentMethodSelect.addEventListener('change', async (e) => {
-            const selectedMethod = e.target.value;
-            const stripeCardForm = document.getElementById('stripeCardForm');
-            
-            if (selectedMethod === 'Card') {
-                if (stripeCardForm) {
-                    stripeCardForm.style.display = 'block';
-                }
-                // Wait for Stripe to initialize if not ready
-                if (!stripe) {
-                    await initializeStripeForProduct();
-                }
-                if (stripe && !stripeCardNumber) {
-                    setupStripeCardElementsForProduct();
-                }
-            } else {
-                if (stripeCardForm) {
-                    stripeCardForm.style.display = 'none';
-                }
-                window.stripePaymentMethodId = null;
-            }
+    // Setup payment method buttons
+    const paymentMethodButtons = modal.querySelectorAll('.payment-method-btn');
+    if (paymentMethodButtons.length > 0 && paymentMethodSelect) {
+        paymentMethodButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                // Remove active class from all buttons
+                paymentMethodButtons.forEach(b => b.classList.remove('active'));
+                
+                // Add active class to clicked button
+                btn.classList.add('active');
+                
+                // Set hidden input value
+                const paymentMethod = btn.getAttribute('data-method');
+                paymentMethodSelect.value = paymentMethod;
+                
+                // Update selectedPaymentMethod variable
+                selectedPaymentMethod = paymentMethod;
+            });
         });
     }
 
-    // Restrict phone input to digits only
-    if (phoneInput) {
-        phoneInput.addEventListener('input', (e) => {
-            e.target.value = e.target.value.replace(/[^0-9]/g, '');
+    // Setup loyalty toggle listener to update totals
+    const useLoyaltyToggle = document.getElementById('useLoyaltyToggle');
+    if (useLoyaltyToggle) {
+        useLoyaltyToggle.addEventListener('change', () => {
+            updateOrderSummaryTotals();
         });
     }
+
     
-    // Add card button listener
-    const addCardBtn = document.getElementById('addCardBtn');
-    if (addCardBtn) {
-        addCardBtn.addEventListener('click', async () => {
-            await handleStripeCardAddForProduct();
+    // Setup order type buttons
+    const orderTypeButtons = modal.querySelectorAll('.order-type-btn');
+    if (orderTypeButtons.length > 0 && orderTypeSelect) {
+        orderTypeButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                // Remove active class from all buttons
+                orderTypeButtons.forEach(b => b.classList.remove('active'));
+                
+                // Add active class to clicked button
+                btn.classList.add('active');
+                
+                // Set hidden input value
+                const orderType = btn.getAttribute('data-type');
+                orderTypeSelect.value = orderType;
+                
+                // Update selectedOrderType variable
+                selectedOrderType = orderType;
+            });
         });
     }
     
@@ -1168,18 +1538,14 @@ function setupOrderSummaryModalListeners() {
                 alert('Please select a payment method.');
                 return;
             }
-            // If Card is selected, ensure card is added
-            if (paymentMethod.value === 'Card' && !window.stripePaymentMethodId) {
-                alert('Please add your card details first.');
-                return;
-            }
-            const phoneValue = phoneInput ? phoneInput.value.trim() : '';
+            const cartPhoneInput = document.getElementById('cartCustomerPhone');
+            const phoneValue = cartPhoneInput ? cartPhoneInput.value.trim() : '';
             const cleanPhone = phoneValue.replace(/[^0-9]/g, '');
             if (!cleanPhone || cleanPhone.length < 7) {
                 alert('Please enter a valid phone number (minimum 7 digits).');
-                if (phoneInput) {
-                    phoneInput.classList.add('input-error');
-                    setTimeout(() => phoneInput && phoneInput.classList.remove('input-error'), 1500);
+                if (cartPhoneInput) {
+                    cartPhoneInput.classList.add('input-error');
+                    setTimeout(() => cartPhoneInput && cartPhoneInput.classList.remove('input-error'), 1500);
                 }
                 return;
             }
@@ -1195,10 +1561,14 @@ function setupOrderSummaryModalListeners() {
 
             selectedPaymentMethod = paymentMethod.value;
             selectedOrderType = orderTypeValue;
+// Use loyalty discount inline (no modal)
+selectedPaymentMethod = paymentMethod.value;
+selectedOrderType = orderTypeValue;
 
-            // Close order summary modal and show loyalty modal directly
-            closeOrderSummaryModal();
-            showLoyaltyPointsModal(cleanPhone);
+// Go to finishing step (save order)
+finalizeOrderWithLoyalty();
+
+
         });
     }
     
@@ -1225,6 +1595,7 @@ let currentCustomerPhone = '';
 let currentCustomerData = null;
 let currentLoyaltyPoints = 0;
 let loyaltyDiscount = 0;
+let pointsToUse = 0; // Points entered by user to use
 
 // Old fetchAllUsers function removed - now using /user-by-phone API directly
 
@@ -1324,8 +1695,6 @@ async function fetchCustomerByPhone(phoneNumber) {
     }
 }
 
-// Fetch loyalty points for customer using /api/loyalty-points endpoint
-// Schema: { user: ObjectId, points: Number }
 async function fetchLoyaltyPoints(customerId) {
     try {
         const userToken = currentUser?.token;
@@ -1335,20 +1704,17 @@ async function fetchLoyaltyPoints(customerId) {
         }
 
         if (!customerId) {
-            console.error('Customer ID is required');
+            console.error('Customer ID is required for loyalty points fetch');
             return 0;
         }
 
-        console.log('Fetching loyalty points for customer:', customerId);
-        
-        // Use /api/loyalty-points endpoint
-        // Backend router: router.use('/loyalty-points', createCrud(LoyaltyPoint, {...}))
-        // Backend filters by req.user.id by default, but query parameter 'user' should override it
-        // Schema: { user: ObjectId, points: Number }
+        console.log('Fetching loyalty points for customer ID:', customerId);
+
+        // Use /loyalty-points with user query param
+        // Backend must honour ?user query param for staff/admin roles
         const url = `https://api.mr-bakers.com/api/loyalty-points?user=${encodeURIComponent(customerId)}`;
-        
-        console.log('Fetching loyalty points from URL:', url);
-        
+        console.log('Loyalty points API URL:', url);
+
         const response = await fetch(url, {
             method: 'GET',
             headers: {
@@ -1362,11 +1728,14 @@ async function fetchLoyaltyPoints(customerId) {
 
         if (!response.ok) {
             if (response.status === 404) {
-                console.log('No loyalty points found for customer');
-                return 0; // No loyalty points found
+                console.log('No loyalty points record found for customer (returning 0)');
+                return 0; // No loyalty points found = 0 points
             }
             if (response.status === 401) {
                 console.error('401 Unauthorized - Token may be expired');
+                alert('Session expired. Please login again.');
+                sessionStorage.removeItem('user');
+                window.location.href = 'index.html';
                 return 0;
             }
             const errorText = await response.text();
@@ -1375,37 +1744,139 @@ async function fetchLoyaltyPoints(customerId) {
         }
 
         const data = await response.json();
-        console.log('Loyalty points response:', data);
-        
-        // Handle different response formats based on schema: { user: ObjectId, points: Number }
-        // Response could be:
-        // 1. Direct array: [{ user: ObjectId, points: 100 }]
-        // 2. Object with data: { data: [{ user: ObjectId, points: 100 }] }
-        // 3. Single object: { user: ObjectId, points: 100 }
-        
+        console.log('Loyalty points API raw response:', data);
+
+        // Handle different response formats from CRUD API:
+        // 1) Direct array: [{ _id, user, points, ... }]
+        // 2) { data: [{ _id, user, points, ... }] }
+        // 3) Single object: { _id, user, points, ... }
+        // 4) { data: { _id, user, points, ... } }
         let points = 0;
-        
-        if (Array.isArray(data)) {
-            // If array, get points from first item (should only be one per user)
-            if (data.length > 0) {
-                points = Number(data[0].points) || 0;
-                console.log('Found loyalty points in array:', points);
-            }
-        } else if (data.data && Array.isArray(data.data)) {
-            if (data.data.length > 0) {
-                points = Number(data.data[0].points) || 0;
-                console.log('Found loyalty points in data array:', points);
-            }
-        } else if (data.points !== undefined) {
+
+        if (Array.isArray(data) && data.length > 0) {
+            // Array format - get first record's points
+            points = Number(data[0].points) || 0;
+            console.log('Extracted points from array:', points);
+        } else if (Array.isArray(data.data) && data.data.length > 0) {
+            // { data: [...] } format
+            points = Number(data.data[0].points) || 0;
+            console.log('Extracted points from data array:', points);
+        } else if (typeof data.points !== 'undefined') {
+            // Single object with points property
             points = Number(data.points) || 0;
-            console.log('Found loyalty points in object:', points);
+            console.log('Extracted points from object:', points);
+        } else if (data.data && typeof data.data.points !== 'undefined') {
+            // { data: { points: ... } } format
+            points = Number(data.data.points) || 0;
+            console.log('Extracted points from nested data:', points);
+        } else {
+            console.warn('Unexpected loyalty points response format:', data);
+            points = 0;
         }
-        
-        console.log('Extracted loyalty points:', points);
+
+        console.log('Final loyalty points value:', points);
         return points;
     } catch (error) {
         console.error('Error fetching loyalty points:', error);
-        return 0;
+        return 0; // Return 0 on error to allow order to continue
+    }
+}
+
+// Fetch points rule by key (GET /api/points-rules/rule/:key)
+async function fetchPointsRuleByKey(key) {
+    try {
+        const userToken = currentUser?.token;
+        if (!userToken) {
+            console.error('No token found. Please login again.');
+            return null;
+        }
+
+        const response = await fetch(`https://api.mr-bakers.com/api/points-rules/rule/${encodeURIComponent(key)}`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${userToken}`,
+                'Accept': 'application/json'
+            }
+        });
+
+        if (!response.ok) {
+            console.error('Failed to fetch points rule:', response.status, await response.text());
+            return null;
+        }
+
+        const data = await response.json();
+        // Backend might return { data: rule } or just rule
+        return data.data || data;
+    } catch (error) {
+        console.error('Error fetching points rule by key:', error);
+        return null;
+    }
+}
+
+// Fetch all points rules (GET /api/points-rules/rules)
+async function fetchAllPointsRules() {
+    try {
+        const userToken = currentUser?.token;
+        if (!userToken) {
+            console.error('No token found. Please login again.');
+            return [];
+        }
+
+        const response = await fetch('https://api.mr-bakers.com/api/points-rules/rules', {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${userToken}`,
+                'Accept': 'application/json'
+            }
+        });
+
+        if (!response.ok) {
+            console.error('Failed to fetch all points rules:', response.status, await response.text());
+            return [];
+        }
+
+        const data = await response.json();
+        // Could be { data: [...] } or [...]
+        if (Array.isArray(data)) return data;
+        if (Array.isArray(data.data)) return data.data;
+        return [];
+    } catch (error) {
+        console.error('Error fetching all points rules:', error);
+        return [];
+    }
+}
+
+// Update a points rule by key (PUT /api/points-rules/rules/:key)
+async function updatePointsRuleByKey(key, updatePayload) {
+    try {
+        const userToken = currentUser?.token;
+        if (!userToken) {
+            console.error('No token found. Please login again.');
+            return null;
+        }
+
+        const response = await fetch(`https://api.mr-bakers.com/api/points-rules/rules/${encodeURIComponent(key)}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${userToken}`,
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify(updatePayload || {})
+        });
+
+        if (!response.ok) {
+            console.error('Failed to update points rule:', response.status, await response.text());
+            return null;
+        }
+
+        const data = await response.json();
+        return data.data || data;
+    } catch (error) {
+        console.error('Error updating points rule by key:', error);
+        return null;
     }
 }
 
@@ -1414,49 +1885,296 @@ function calculateDiscountFromPoints(points, totalAmount) {
     return Math.min(points, totalAmount);
 }
 
-// Save payment record to backend
-async function savePaymentRecordToBackend(paymentMethod, cart, currentUser, totalAmount) {
+// Update order summary totals based on loyalty toggle state
+function updateOrderSummaryTotals() {
+    const subtotal = cart.items.reduce((sum, item) =>
+        sum + (item.productId.price * item.quantity), 0);
+    const tax = subtotal * 0.05;
+    
+    const useLoyaltyToggle = document.getElementById('useLoyaltyToggle');
+    const appliedDiscount = (useLoyaltyToggle && useLoyaltyToggle.checked) 
+        ? loyaltyDiscount 
+        : 0;
+    
+    const finalTotal = Math.max(0, subtotal + tax - appliedDiscount);
+    
+    const subtotalEl = document.getElementById('orderSubtotal');
+    const taxEl = document.getElementById('orderTax');
+    const discountEl = document.getElementById('orderDiscount');
+    const totalEl = document.getElementById('orderTotal');
+    
+    if (subtotalEl) subtotalEl.textContent = `₹${subtotal.toFixed(2)}`;
+    if (taxEl) taxEl.textContent = `₹${tax.toFixed(2)}`;
+    if (discountEl) discountEl.textContent = `₹${appliedDiscount.toFixed(2)}`;
+    if (totalEl) totalEl.textContent = `₹${finalTotal.toFixed(2)}`;
+}
+
+// Redeem loyalty points - deduct from customer balance and create redeemed record
+async function redeemLoyaltyPoints(customerId, pointsToRedeem, posOrderId) {
     try {
-        const userToken = currentUser.token;
-        const userId = currentUser.id;
+        const userToken = currentUser?.token;
+        if (!userToken) {
+            console.error('No token found for redeeming points');
+            return false;
+        }
 
-        // Map payment method to backend format - backend expects capitalized format
-        const paymentMap = {
-            'Cash': 'Cash',
-            'Card': 'Card',
-            'paypal': 'PayPal'
+        if (!customerId || !pointsToRedeem || pointsToRedeem <= 0) {
+            console.log('No points to redeem');
+            return true; // Not an error, just nothing to do
+        }
+
+        if (!posOrderId) {
+            console.error('POS Order ID is required to redeem points');
+            return false;
+        }
+
+        console.log(`Redeeming ${pointsToRedeem} points for customer ${customerId} on order ${posOrderId}`);
+
+        // Step 1: Create points-redeemed record
+        const redeemedData = {
+            user: customerId,
+            points: pointsToRedeem,
+            type: 'pos',
+            posOrder: posOrderId
         };
-        const mappedMethod = paymentMap[paymentMethod] || paymentMethod;
 
-        const paymentData = {
-            user: userId,
-            method: mappedMethod,
-            amount: totalAmount,
-            date: new Date().toISOString()
-        };
-
-        console.log('Saving payment record:', paymentData);
-
-        const paymentResponse = await fetch('https://api.mr-bakers.com/api/payments', {
+        const redeemedResponse = await fetch('https://api.mr-bakers.com/api/points-redeemed', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': userToken ? `Bearer ${userToken}` : '',
+                'Authorization': `Bearer ${userToken}`,
                 'Accept': 'application/json'
             },
-            body: JSON.stringify(paymentData)
+            body: JSON.stringify(redeemedData)
         });
 
-        if (!paymentResponse.ok) {
-            const errorText = await paymentResponse.text();
-            console.error('Failed to save payment record:', paymentResponse.status, errorText);
-        } else {
-            const responseData = await paymentResponse.json();
-            console.log('Payment record saved successfully:', responseData);
+        if (!redeemedResponse.ok) {
+            const errorText = await redeemedResponse.text();
+            console.error('Failed to create points-redeemed record:', redeemedResponse.status, errorText);
+            return false;
         }
+
+        const redeemedResult = await redeemedResponse.json();
+        console.log('Points redeemed record created:', redeemedResult);
+
+        // Step 2: Update customer's loyalty points balance (deduct redeemed points)
+        // Fetch current points
+        const currentPoints = await fetchLoyaltyPoints(customerId);
+        const newPointsBalance = Math.max(0, currentPoints - pointsToRedeem);
+
+        // Update loyalty points - try PUT/PATCH to update existing record
+        // First, get the loyalty points record ID
+        const loyaltyResponse = await fetch(`https://api.mr-bakers.com/api/loyalty-points?user=${encodeURIComponent(customerId)}`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${userToken}`,
+                'Accept': 'application/json'
+            }
+        });
+
+        if (loyaltyResponse.ok) {
+            const loyaltyData = await loyaltyResponse.json();
+            let loyaltyRecord = null;
+
+            // Find the loyalty record
+            if (Array.isArray(loyaltyData) && loyaltyData.length > 0) {
+                loyaltyRecord = loyaltyData[0];
+            } else if (Array.isArray(loyaltyData.data) && loyaltyData.data.length > 0) {
+                loyaltyRecord = loyaltyData.data[0];
+            } else if (loyaltyData._id || loyaltyData.id) {
+                loyaltyRecord = loyaltyData;
+            }
+
+            if (loyaltyRecord && (loyaltyRecord._id || loyaltyRecord.id)) {
+                const loyaltyId = loyaltyRecord._id || loyaltyRecord.id;
+                
+                // Update the loyalty points record (if backend supports update)
+                // Note: Backend may have update disabled, so this might fail
+                // In that case, the points-redeemed record is still created for tracking
+                try {
+                    const updateResponse = await fetch(`https://api.mr-bakers.com/api/loyalty-points/${loyaltyId}`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${userToken}`,
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify({ points: newPointsBalance })
+                    });
+
+                    if (updateResponse.ok) {
+                        console.log(`Loyalty points updated: ${currentPoints} -> ${newPointsBalance}`);
+                    } else {
+                        console.warn('Could not update loyalty points balance (update may be disabled in backend)');
+                        console.warn('Points-redeemed record created for tracking');
+                    }
+                } catch (updateError) {
+                    console.warn('Error updating loyalty points:', updateError);
+                    console.warn('Points-redeemed record created for tracking');
+                }
+            } else {
+                console.warn('Loyalty points record not found - points-redeemed record created for tracking');
+            }
+        }
+
+        return true;
     } catch (error) {
-        console.error('Error saving payment record:', error);
-        // Continue even if payment record save fails
+        console.error('Error redeeming loyalty points:', error);
+        return false;
+    }
+}
+
+// Earn loyalty points after purchase - add points to customer balance
+async function earnLoyaltyPoints(customerId, purchaseAmount, posOrderId) {
+    try {
+        const userToken = currentUser?.token;
+        if (!userToken) {
+            console.error('No token found for earning points');
+            return false;
+        }
+
+        if (!customerId || !purchaseAmount || purchaseAmount <= 0) {
+            console.log('No purchase amount to earn points from');
+            return true; // Not an error, just nothing to do
+        }
+
+        if (!posOrderId) {
+            console.error('POS Order ID is required to earn points');
+            return false;
+        }
+
+        // Calculate points to earn (typically 1 point per ₹1 spent, or percentage based)
+        // You can adjust this formula based on your business rules
+        const pointsToEarn = Math.floor(purchaseAmount); // 1 point per ₹1 spent
+
+        console.log(`Earning ${pointsToEarn} points for customer ${customerId} on order ${posOrderId} (purchase: ₹${purchaseAmount})`);
+
+        // Step 1: Fetch current loyalty points
+        const currentPoints = await fetchLoyaltyPoints(customerId);
+        const newPointsBalance = currentPoints + pointsToEarn;
+
+        // Step 2: Check if loyalty points record exists
+        const loyaltyResponse = await fetch(`https://api.mr-bakers.com/api/loyalty-points?user=${encodeURIComponent(customerId)}`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${userToken}`,
+                'Accept': 'application/json'
+            }
+        });
+
+        if (loyaltyResponse.ok) {
+            const loyaltyData = await loyaltyResponse.json();
+            let loyaltyRecord = null;
+
+            // Find the loyalty record
+            if (Array.isArray(loyaltyData) && loyaltyData.length > 0) {
+                loyaltyRecord = loyaltyData[0];
+            } else if (Array.isArray(loyaltyData.data) && loyaltyData.data.length > 0) {
+                loyaltyRecord = loyaltyData.data[0];
+            } else if (loyaltyData._id || loyaltyData.id) {
+                loyaltyRecord = loyaltyData;
+            } else if (loyaltyData.data && (loyaltyData.data._id || loyaltyData.data.id)) {
+                loyaltyRecord = loyaltyData.data;
+            }
+
+            if (loyaltyRecord && (loyaltyRecord._id || loyaltyRecord.id)) {
+                // Update existing loyalty points record
+                const loyaltyId = loyaltyRecord._id || loyaltyRecord.id;
+                
+                try {
+                    const updateResponse = await fetch(`https://api.mr-bakers.com/api/loyalty-points/${loyaltyId}`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${userToken}`,
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify({ points: newPointsBalance })
+                    });
+
+                    if (updateResponse.ok) {
+                        console.log(`Loyalty points updated: ${currentPoints} -> ${newPointsBalance} (+${pointsToEarn})`);
+                        return true;
+                    } else {
+                        console.warn('Could not update loyalty points balance (update may be disabled in backend)');
+                        // Try to create new record if update fails
+                    }
+                } catch (updateError) {
+                    console.warn('Error updating loyalty points:', updateError);
+                    // Try to create new record if update fails
+                }
+            }
+        }
+
+        // Step 3: If no record exists or update failed, try to create new record
+        // Note: Backend may have create disabled, so this might fail
+        try {
+            const createData = {
+                user: customerId,
+                points: pointsToEarn
+            };
+
+            const createResponse = await fetch('https://api.mr-bakers.com/api/loyalty-points', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${userToken}`,
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify(createData)
+            });
+
+            if (createResponse.ok) {
+                console.log(`New loyalty points record created: ${pointsToEarn} points for customer ${customerId}`);
+                return true;
+            } else {
+                const errorText = await createResponse.text();
+                console.warn('Could not create loyalty points record (create may be disabled in backend):', createResponse.status, errorText);
+                // Still return true as this is not critical for order completion
+                return true;
+            }
+        } catch (createError) {
+            console.warn('Error creating loyalty points record:', createError);
+            // Still return true as this is not critical for order completion
+            return true;
+        }
+
+    } catch (error) {
+        console.error('Error earning loyalty points:', error);
+        // Return true to not block order completion even if points earning fails
+        return true;
+    }
+}
+
+// Generate bill preview after POS order is saved (Order Summary flow)
+function generateBillPreview(savedOrder) {
+    try {
+        // Phone from cart section (single source of truth)
+        const cartPhoneInput = document.getElementById('cartCustomerPhone');
+        const phoneNumber = cartPhoneInput ? cartPhoneInput.value.trim() : '';
+
+        // Calculate amounts from current cart
+        const subtotal = cart.items.reduce((sum, item) =>
+            sum + (item.productId.price * item.quantity), 0);
+        const tax = subtotal * 0.05;
+
+        // Apply loyalty discount if any
+        const discount = loyaltyDiscount || 0;
+        const total = Math.max(0, subtotal + tax - discount);
+
+        // Close order summary modal before showing bill
+        const orderModal = document.getElementById('orderSummaryModal');
+        if (orderModal) {
+            orderModal.style.display = 'none';
+        }
+
+        // Reuse existing bill generator (opens bill modal)
+        generateBill(phoneNumber, discount, subtotal, tax, total);
+    } catch (err) {
+        console.error('Error generating bill preview:', err);
+        alert('Bill generation failed. Order may be saved, please check Recent Orders.');
     }
 }
 
@@ -1822,12 +2540,6 @@ function closeLoyaltyPointsModal() {
 }
 
 async function completePurchase(phoneNumber, discount = 0) {
-    // If Card payment, process Stripe payment first (from cart.js)
-    if (selectedPaymentMethod === 'Card') {
-        await processStripePaymentForProduct(discount);
-        return;
-    }
-    
     // Calculate totals
     const subtotal = cart.items.reduce((sum, item) => {
         const price = item.productId.price || 0;
@@ -1838,11 +2550,9 @@ async function completePurchase(phoneNumber, discount = 0) {
     const total = Math.max(0, subtotal + tax - discount);
     
     try {
-        // Save payment record and POS order to backend for all payment methods
+        // Save POS order to backend for all payment methods
         if (selectedPaymentMethod) {
-            // Save payment record first
-            await savePaymentRecordToBackend(selectedPaymentMethod, cart, currentUser, total);
-            // Then save POS order - wait for response
+            // Save POS order - wait for response
             const savedOrder = await savePosOrderToBackend(selectedPaymentMethod, selectedOrderType || 'take-away', cart, currentUser, discount);
             
             if (savedOrder) {
@@ -1961,15 +2671,12 @@ function generateBill(phoneNumber, discount, subtotal, tax, total) {
     if (billModalContent) billModalContent.innerHTML = billContentHTML;
     if (billContent) billContent.innerHTML = billContentHTML;
     if (billModal) billModal.style.display = 'flex';
+
+    // After bill is generated and shown, clear cart and reset state for next order
+    resetCartAndState();
 }
 
-function closeBillModal() {
-    const billModal = document.getElementById('billModal');
-    if (billModal) {
-        billModal.style.display = 'none';
-    }
-    
-    // Clear cart after closing bill
+function resetCartAndState() {
     cart = { items: [] };
     saveCart();
     renderCart();
@@ -1981,6 +2688,36 @@ function closeBillModal() {
     currentLoyaltyPoints = 0;
     loyaltyDiscount = 0;
     selectedPaymentMethod = '';
+
+    // Reset cart-side customer UI
+    const cartPhoneInput = document.getElementById('cartCustomerPhone');
+    if (cartPhoneInput) {
+        cartPhoneInput.value = '';
+    }
+
+    const loyaltyBox = document.getElementById('cartLoyaltyInlineBox');
+    const nameEl = document.getElementById('cartInlineCustomerName');
+    const pointsEl = document.getElementById('cartInlineLoyaltyPoints');
+    const discountEl = document.getElementById('cartInlineLoyaltyDiscount');
+    const pointsInput = document.getElementById('cartPointsToUse');
+
+    if (nameEl) nameEl.textContent = '';
+    if (pointsEl) pointsEl.textContent = '0';
+    if (discountEl) discountEl.textContent = '₹0.00';
+    if (pointsInput) {
+        pointsInput.value = '';
+        pointsInput.max = 0;
+    }
+    if (loyaltyBox) {
+        loyaltyBox.style.display = 'none';
+    }
+}
+
+function closeBillModal() {
+    const billModal = document.getElementById('billModal');
+    if (billModal) {
+        billModal.style.display = 'none';
+    }
 }
 
 // Setup bill modal listeners
@@ -2001,396 +2738,114 @@ function setupBillModalListeners() {
     if (closeBillBtn) closeBillBtn.addEventListener('click', closeHandler);
     if (overlay) overlay.addEventListener('click', closeHandler);
     
-    // Print button
+    // Simple print: open browser/Electron print dialog for current window
     if (printBtn) {
         printBtn.addEventListener('click', () => {
-            // Show bill section for printing
-            const billSection = document.getElementById('billSection');
-            const billContent = document.getElementById('billContent');
-            
-            if (billSection && billContent) {
-                // Ensure billContent has the same content as modal
-                const billModalContent = document.getElementById('billModalContent');
-                if (billModalContent) {
-                    billContent.innerHTML = billModalContent.innerHTML;
-                }
-                
-                // Make billSection visible and properly positioned for print
-                billSection.style.display = 'block';
-                billSection.style.visibility = 'visible';
-            }
-            
-            // Close modal
-            closeBillModal();
-            
-            // Print after a short delay to ensure content is ready
-            setTimeout(() => {
-                window.print();
-                
-                // Hide bill section after printing
-                setTimeout(() => {
-                    if (billSection) {
-                        billSection.style.display = 'none';
-                        billSection.style.visibility = 'hidden';
-                    }
-                }, 500);
-            }, 300);
+            window.print(); // Electron will show the print window (select printer / PDF)
         });
     }
 }
-
-// Setup loyalty points modal listeners
-function setupLoyaltyPointsModalListeners() {
-    const modal = document.getElementById('loyaltyPointsModal');
-    const closeBtn = document.getElementById('closeLoyaltyModal');
-    const continueWithPointsBtn = document.getElementById('continueWithPointsBtn');
-    const continueBtn = document.getElementById('continueWithoutBtn');
-    const overlay = modal ? modal.querySelector('.modal-overlay') : null;
-    
-    if (!modal || !closeBtn || !continueBtn) return;
-    
-    const closeHandler = () => {
-        closeLoyaltyPointsModal();
-        // Reset variables
-        currentCustomerPhone = '';
-        currentCustomerData = null;
-        currentLoyaltyPoints = 0;
-        loyaltyDiscount = 0;
-    };
-    
-    if (closeBtn) closeBtn.addEventListener('click', closeHandler);
-    if (overlay) overlay.addEventListener('click', closeHandler);
-    
-    // Continue with points button (applies discount)
-    if (continueWithPointsBtn) {
-        continueWithPointsBtn.addEventListener('click', () => {
-            closeLoyaltyPointsModal();
-            completePurchase(currentCustomerPhone, loyaltyDiscount);
-        });
-    }
-    
-    // Continue without points button (no discount)
-    if (continueBtn) {
-        continueBtn.addEventListener('click', () => {
-            closeLoyaltyPointsModal();
-            completePurchase(currentCustomerPhone, 0);
-        });
-    }
-}
-
-
-// Stripe Integration Functions (from cart.js)
-
-async function ensureStripeKeys() {
+async function finalizeOrderWithLoyalty() {
     try {
-        const branchId = currentUser.branchId;
-        if (!branchId) {
-            console.error('Branch ID not found');
-            return;
-        }
+        const subtotal = cart.items.reduce((sum, item) =>
+            sum + (item.productId.price * item.quantity), 0);
 
-        // Check if keys exist
-        const response = await fetch(`https://api.mr-bakers.com/api/stripe-keys/${branchId}`, {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-            }
-        });
-
-        if (response.ok) {
-            const data = await response.json();
-            if (data.stripePublicKey) {
-                console.log('Stripe keys already exist');
-                return;
-            }
-        }
-
-        // Keys don't exist, create them
-        const userToken = currentUser.token;
-        const createResponse = await fetch('https://api.mr-bakers.com/api/stripe-keys', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': userToken ? `Bearer ${userToken}` : ''
-            },
-            body: JSON.stringify({
-                branchId: branchId,
-                stripePublicKey: 'pk_test_51SFF7NRSKi9P4SsbBZEIzebwnEMiiqSGxfSANV7DJAOdz6WXOOWwLDV1E5ufTtluui9NJzz0fetEOrvxwJJ2lLEk00JOnDkjtv'
-                // Note: stripeSecretKey should be configured securely on backend, not sent from frontend
-            })
-        });
-
-        if (createResponse.ok) {
-            console.log('Stripe keys created successfully');
-        } else {
-            const errorData = await createResponse.json();
-            console.error('Failed to create Stripe keys:', errorData);
-        }
-    } catch (error) {
-        console.error('Error ensuring Stripe keys:', error);
-    }
-}
-
-async function getStripePublicKey() {
-    try {
-        const branchId = currentUser.branchId;
-        if (!branchId) {
-            console.error('Branch ID not found');
-            return null;
-        }
-
-        const response = await fetch(`https://api.mr-bakers.com/api/stripe-keys/${branchId}`, {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-            }
-        });
-
-        if (response.ok) {
-            const data = await response.json();
-            return data.stripePublicKey || 'pk_test_51SFF7NRSKi9P4SsbBZEIzebwnEMiiqSGxfSANV7DJAOdz6WXOOWwLDV1E5ufTtluui9NJzz0fetEOrvxwJJ2lLEk00JOnDkjtv';
-        } else {
-            // Fallback to provided key
-            return 'pk_test_51SFF7NRSKi9P4SsbBZEIzebwnEMiiqSGxfSANV7DJAOdz6WXOOWwLDV1E5ufTtluui9NJzz0fetEOrvxwJJ2lLEk00JOnDkjtv';
-        }
-    } catch (error) {
-        console.error('Error fetching Stripe public key:', error);
-        // Fallback to provided key
-        return 'pk_test_51SFF7NRSKi9P4SsbBZEIzebwnEMiiqSGxfSANV7DJAOdz6WXOOWwLDV1E5ufTtluui9NJzz0fetEOrvxwJJ2lLEk00JOnDkjtv';
-    }
-}
-
-async function initializeStripeForProduct() {
-    try {
-        // First, ensure Stripe keys exist in backend
-        await ensureStripeKeys();
-        
-        // Fetch Stripe public key
-        const publicKey = await getStripePublicKey();
-        if (publicKey) {
-            stripePublicKey = publicKey;
-            if (typeof window.Stripe !== 'undefined') {
-                stripe = window.Stripe(publicKey);
-                window.stripeInstance = stripe; // Also set for compatibility
-                console.log('Stripe initialized successfully');
-            }
-        } else {
-            console.error('Failed to get Stripe public key');
-        }
-    } catch (error) {
-        console.error('Error initializing Stripe:', error);
-    }
-}
-
-// Setup Stripe card elements (from cart.js)
-function setupStripeCardElementsForProduct() {
-    if (!stripe) {
-        console.error('Stripe not initialized');
-        return;
-    }
-
-    const elements = stripe.elements();
-    const style = {
-        base: {
-            fontSize: '16px',
-            color: '#333333',
-            fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif',
-            '::placeholder': {
-                color: '#999999'
-            }
-        },
-        invalid: {
-            color: '#fa755a',
-            iconColor: '#fa755a'
-        }
-    };
-
-    // Create card number element
-    const cardNumberElement = elements.create('cardNumber', { style });
-    cardNumberElement.mount('#stripeCardNumber');
-    stripeCardNumber = cardNumberElement;
-    window.stripeCardNumberElement = cardNumberElement; // Also set for compatibility
-
-    // Create expiry element
-    const cardExpiryElement = elements.create('cardExpiry', { style });
-    cardExpiryElement.mount('#stripeCardExpiry');
-    stripeCardExpiry = cardExpiryElement;
-    window.stripeCardExpiryElement = cardExpiryElement; // Also set for compatibility
-
-    // Create CVV element
-    const cardCvcElement = elements.create('cardCvc', { style });
-    cardCvcElement.mount('#stripeCardCvc');
-    stripeCardCvc = cardCvcElement;
-    window.stripeCardCvcElement = cardCvcElement; // Also set for compatibility
-
-    // Get errors element
-    stripeCardErrors = document.getElementById('stripeCardErrors');
-
-    // Listen for errors on all elements
-    const handleError = (event) => {
-        if (event.error) {
-            if (stripeCardErrors) {
-                stripeCardErrors.textContent = event.error.message;
-                stripeCardErrors.style.display = 'block';
-            }
-        } else {
-            if (stripeCardErrors) {
-                stripeCardErrors.textContent = '';
-                stripeCardErrors.style.display = 'none';
-            }
-        }
-    };
-
-    cardNumberElement.on('change', handleError);
-    cardExpiryElement.on('change', handleError);
-    cardCvcElement.on('change', handleError);
-}
-
-// Handle Stripe card add (from cart.js)
-async function handleStripeCardAddForProduct() {
-    if (!stripe || !stripeCardNumber || !stripeCardExpiry || !stripeCardCvc) {
-        alert('Stripe is not initialized. Please refresh the page.');
-        return;
-    }
-
-    const addCardBtn = document.getElementById('addCardBtn');
-    addCardBtn.disabled = true;
-    addCardBtn.textContent = 'Processing...';
-
-    try {
-        // Create payment method using separate card elements
-        const { paymentMethod, error } = await stripe.createPaymentMethod({
-            type: 'card',
-            card: stripeCardNumber,
-            billing_details: {
-                // Optional: Add billing details if needed
-            }
-        });
-
-        if (error) {
-            if (stripeCardErrors) {
-                stripeCardErrors.textContent = error.message;
-                stripeCardErrors.style.display = 'block';
-            }
-            addCardBtn.disabled = false;
-            addCardBtn.textContent = 'Add Card';
-            return;
-        }
-
-        // Card added successfully
-        if (stripeCardErrors) {
-            stripeCardErrors.textContent = 'Card added successfully!';
-            stripeCardErrors.style.display = 'block';
-            stripeCardErrors.style.color = '#28a745';
-        }
-        
-        // Store payment method ID for later use
-        window.stripePaymentMethodId = paymentMethod.id;
-        
-        addCardBtn.disabled = false;
-        addCardBtn.textContent = 'Card Added ✓';
-        
-        setTimeout(() => {
-            if (stripeCardErrors) {
-                stripeCardErrors.textContent = '';
-                stripeCardErrors.style.display = 'none';
-            }
-        }, 3000);
-    } catch (error) {
-        console.error('Error adding card:', error);
-        if (stripeCardErrors) {
-            stripeCardErrors.textContent = 'An error occurred. Please try again.';
-            stripeCardErrors.style.display = 'block';
-        }
-        addCardBtn.disabled = false;
-        addCardBtn.textContent = 'Add Card';
-    }
-}
-
-// Process Stripe payment (from cart.js) - for Card payment method
-async function processStripePaymentForProduct(loyaltyDiscount = 0) {
-    if (!stripe || !stripeCardNumber || !stripeCardExpiry || !stripeCardCvc) {
-        alert('Stripe card form is not ready. Please add a card first.');
-        return;
-    }
-
-    try {
-        const subtotal = cart.items.reduce((sum, item) => {
-            return sum + (item.productId.price * item.quantity);
-        }, 0);
         const tax = subtotal * 0.05;
-        const total = Math.max(0, subtotal + tax - loyaltyDiscount);
+        
+        // Use pointsToUse from cart input (or from order summary modal toggle)
+        const useLoyaltyToggle = document.getElementById('useLoyaltyToggle');
+        let finalDiscount = 0;
+        
+        // Check if points are entered in cart section
+        if (pointsToUse > 0) {
+            // Use points from cart input
+            finalDiscount = Math.min(pointsToUse, currentLoyaltyPoints, subtotal + tax);
+        } else if (useLoyaltyToggle && useLoyaltyToggle.checked) {
+            // Fallback to order summary modal toggle
+            finalDiscount = Math.min(loyaltyDiscount, currentLoyaltyPoints, subtotal + tax);
+        }
 
-        // Create payment method if not already created
-        let paymentMethodId = window.stripePaymentMethodId;
-        if (!paymentMethodId) {
-            const { paymentMethod, error } = await stripe.createPaymentMethod({
-                type: 'card',
-                card: stripeCardNumber,
-                billing_details: {
-                    // Optional: Add billing details if needed
-                }
-            });
+        // Calculate final total with discount applied
+        const totalCost = Math.max(0, subtotal + tax - finalDiscount);
 
-            if (error) {
-                if (stripeCardErrors) {
-                    stripeCardErrors.textContent = error.message;
-                    stripeCardErrors.style.display = 'block';
-                }
-                return;
+        // Save POS order first to get order ID
+        const saved = await savePosOrderToBackend(
+            selectedPaymentMethod,
+            selectedOrderType,
+            cart,
+            currentUser,
+            finalDiscount
+        );
+
+        // Get customer ID from cart phone input
+        const cartPhoneInput = document.getElementById('cartCustomerPhone');
+        const phoneNumber = cartPhoneInput ? cartPhoneInput.value.trim() : '';
+        let customerId = null;
+        
+        // If customer data exists, use it; otherwise fetch by phone
+        if (currentCustomerData) {
+            customerId = currentCustomerData._id || currentCustomerData.id;
+        } else if (phoneNumber && phoneNumber.length >= 7) {
+            // Fetch customer by phone if not already loaded
+            const customer = await fetchCustomerByPhone(phoneNumber);
+            if (customer) {
+                customerId = customer._id || customer.id;
             }
-            paymentMethodId = paymentMethod.id;
         }
 
-        // Validate that payment method was created successfully
-        if (!paymentMethodId) {
-            throw new Error('Payment method not created');
+        // If discount was applied, redeem the points using points-redeemed API
+        if (finalDiscount > 0 && customerId && saved) {
+            const posOrderId = saved._id || saved.id;
+            
+            if (posOrderId) {
+                const redeemed = await redeemLoyaltyPoints(customerId, finalDiscount, posOrderId);
+                if (redeemed) {
+                    console.log(`Successfully redeemed ${finalDiscount} points for order ${posOrderId}`);
+                    // Update displayed points if still visible
+                    if (inlineLoyaltyPoints) {
+                        const newPoints = Math.max(0, currentLoyaltyPoints - finalDiscount);
+                        inlineLoyaltyPoints.textContent = newPoints;
+                        currentLoyaltyPoints = newPoints;
+                    }
+                    if (cartInlineLoyaltyPoints) {
+                        const newPoints = Math.max(0, currentLoyaltyPoints - finalDiscount);
+                        cartInlineLoyaltyPoints.textContent = newPoints;
+                        currentLoyaltyPoints = newPoints;
+                    }
+                } else {
+                    console.warn('Failed to redeem points, but order was saved');
+                }
+            }
         }
 
-        // Payment method creation means card is valid
-        // Save payment record to backend with 'Card' method
-        await savePaymentRecordToBackend('Card', cart, currentUser, total);
-        // Save POS order to backend - wait for response
-        const savedOrder = await savePosOrderToBackend('Card', selectedOrderType || 'take-away', cart, currentUser, loyaltyDiscount);
-
-        if (savedOrder) {
-            console.log('Order saved successfully for Card payment:', savedOrder);
-            // Order saved successfully
-        } else {
-            console.warn('Order saved but no confirmation received for Card payment');
-            alert('Order saved but no confirmation received. Please check orders list.');
+        // Earn loyalty points for the customer after purchase (based on final amount paid)
+        if (customerId && saved) {
+            const posOrderId = saved._id || saved.id;
+            // Earn points based on final amount paid (after discount)
+            const earned = await earnLoyaltyPoints(customerId, totalCost, posOrderId);
+            if (earned) {
+                console.log(`Successfully earned points for order ${posOrderId}`);
+                // Refresh loyalty points display if customer is still viewing
+                if (phoneNumber && phoneNumber.length >= 7) {
+                    // Refresh points display
+                    await handleCartPhoneInput(phoneNumber);
+                }
+            } else {
+                console.warn('Failed to earn points, but order was saved');
+            }
         }
 
-        // Payment successful - generate bill only after order is saved
-        const phoneNumber = currentCustomerPhone || '';
-        generateBill(phoneNumber, loyaltyDiscount, subtotal, tax, total);
-        
-        // Close loyalty modal
-        closeLoyaltyPointsModal();
-        
-        await loadRecentOrders(false);
+        // After save → show bill
+        generateBillPreview(saved);
 
-        // Reset Stripe form
-        if (stripeCardNumber) {
-            stripeCardNumber.clear();
-        }
-        if (stripeCardExpiry) {
-            stripeCardExpiry.clear();
-        }
-        if (stripeCardCvc) {
-            stripeCardCvc.clear();
-        }
-        window.stripePaymentMethodId = null;
-        const addCardBtn = document.getElementById('addCardBtn');
-        if (addCardBtn) {
-            addCardBtn.textContent = 'Add Card';
-        }
-        
-    } catch (error) {
-        console.error('Payment error:', error);
-        if (stripeCardErrors) {
-            stripeCardErrors.textContent = error.message || 'Payment failed. Please try again.';
-            stripeCardErrors.style.display = 'block';
-        }
+    } catch (err) {
+        console.error("Finalize Order Error:", err);
+        // If order save failed (e.g., token invalid), still allow bill printing
+        alert("Order save failed on server (e.g., session expired), but you can still print the bill.");
+        // Show bill based on current cart so user can print
+        generateBillPreview(null);
     }
+    
+    // In both success and error cases above, after bill is shown and eventually closed,
+    // cart will be cleared by closeBillModal()
 }
