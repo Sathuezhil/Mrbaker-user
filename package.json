@@ -4,9 +4,12 @@
   "description": "Desktop app for product browsing and purchase",
   "main": "main.js",
   "scripts": {
-    "start": "electron .",
-    "dev": "electron . --dev"
-  },
+  "start": "electron .",
+  "dev": "electron . --dev",
+  "build": "electron-builder",
+  "build:win": "electron-builder --win"
+},
+
   "keywords": [
     "electron",
     "desktop",
@@ -15,7 +18,8 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^27.0.0"
+    "electron": "^27.0.0",
+    "electron-builder": "^26.0.12"
   },
   "dependencies": {
     "@stripe/stripe-js": "^8.4.0",
