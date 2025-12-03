@@ -227,7 +227,6 @@ window.addEventListener('DOMContentLoaded', async () => {
     updateCartCount();
     await loadRecentOrders();
     setupCartListeners();
-    setupSizeModalListeners();
     setupOrderSummaryModalListeners();
     // Loyalty points modal removed in new flow; no setup needed
     setupBillModalListeners();
@@ -543,6 +542,8 @@ function renderProducts() {
         
         // Handle price display - show starting price
         let priceDisplay = '';
+        let sizeButtonsHtml = '';
+        let addToCartBtnAttrs = `data-id="${product.id}"`;
         
         if (product.hasMultiplePrices && product.prices && product.prices.length > 0) {
             // Sort prices by size (ascending order) and show first size price
@@ -555,6 +556,26 @@ function renderProducts() {
             // Show first size price by default
             const firstPrice = sortedPrices[0].price;
             priceDisplay = `₹${firstPrice.toFixed(2)}`;
+            
+            // Set default size attributes for add-to-cart button
+            const defaultSize = sortedPrices[0];
+            addToCartBtnAttrs += ` data-selected-price="${defaultSize.price}" data-selected-size="${defaultSize.size}" data-selected-size-text="${defaultSize.size} - ₹${defaultSize.price.toFixed(2)}"`;
+            
+            // Generate size selection buttons
+            sizeButtonsHtml = `
+                <div class="product-size-buttons" data-product-id="${product.id}">
+                    ${sortedPrices.map((priceItem, index) => `
+                        <button class="size-btn ${index === 0 ? 'active' : ''}" 
+                                data-product-id="${product.id}"
+                                data-price="${priceItem.price}"
+                                data-size="${priceItem.size}"
+                                data-size-text="${priceItem.size} - ₹${priceItem.price.toFixed(2)}">
+                            <span class="size-label">${priceItem.size}</span>
+                            <span class="size-price">₹${priceItem.price.toFixed(2)}</span>
+                        </button>
+                    `).join('')}
+                </div>
+            `;
         } else if (product.price && product.price > 0) {
             priceDisplay = `₹${product.price.toFixed(2)}`;
         } else {
@@ -570,11 +591,12 @@ function renderProducts() {
             <div class="product-info">
                 <div class="product-name">${product.name || ''}</div>
                 ${description ? `<div class="product-description">${description}</div>` : ''}
+                ${sizeButtonsHtml}
                 ${product.ingIngredients ? `<div class="product-ingredients">${product.ingIngredients}</div>` : ''}
                 ${ratingHtml}
                 <div class="product-footer">
                     <div class="product-price">${priceDisplay}</div>
-                    <button class="add-to-cart-btn" data-id="${product.id}">Add to Cart</button>
+                    <button class="add-to-cart-btn" ${addToCartBtnAttrs}>Add to Cart</button>
                 </div>
             </div>
         `;
@@ -588,70 +610,82 @@ function renderProducts() {
             addToCart(productId, btn);
         });
     });
+    
+    // Setup size button listeners
+    document.querySelectorAll('.size-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const productId = btn.getAttribute('data-product-id');
+            const price = parseFloat(btn.getAttribute('data-price'));
+            const size = btn.getAttribute('data-size');
+            const sizeText = btn.getAttribute('data-size-text');
+            
+            // Remove active class from all size buttons for this product
+            const sizeButtonsContainer = btn.closest('.product-size-buttons');
+            if (sizeButtonsContainer) {
+                sizeButtonsContainer.querySelectorAll('.size-btn').forEach(b => b.classList.remove('active'));
+            }
+            
+            // Add active class to clicked button
+            btn.classList.add('active');
+            
+            // Update price display
+            const productCard = btn.closest('.product-card');
+            if (productCard) {
+                const priceEl = productCard.querySelector('.product-price');
+                if (priceEl) {
+                    priceEl.textContent = `₹${price.toFixed(2)}`;
+                }
+            }
+            
+            // Store selected size in button's data attribute for addToCart
+            const addToCartBtn = productCard ? productCard.querySelector('.add-to-cart-btn') : null;
+            if (addToCartBtn) {
+                addToCartBtn.setAttribute('data-selected-price', price);
+                addToCartBtn.setAttribute('data-selected-size', size);
+                addToCartBtn.setAttribute('data-selected-size-text', sizeText);
+            }
+        });
+    });
 }
 
 function addToCart(productId, button) {
     const product = products.find(p => p.id === productId || p._id === productId);
     if (!product) return;
 
-    // If product has multiple sizes, show size selection modal
+    // If product has multiple sizes, get selected size from button data attributes
+    let selectedPrice = null;
+    let selectedSize = null;
+    let selectedSizeText = null;
+    
     if (product.hasMultiplePrices && product.prices && product.prices.length > 0) {
-        showSizeSelectionModal(productId, product);
-        return;
+        // Get selected size from button data attributes
+        if (button) {
+            selectedPrice = button.getAttribute('data-selected-price');
+            selectedSize = button.getAttribute('data-selected-size');
+            selectedSizeText = button.getAttribute('data-selected-size-text');
+            
+            // If no size selected, use first size as default
+            if (!selectedPrice || !selectedSize) {
+                const sortedPrices = [...product.prices].sort((a, b) => {
+                    const sizeA = parseInt(a.size) || 0;
+                    const sizeB = parseInt(b.size) || 0;
+                    return sizeA - sizeB;
+                });
+                if (sortedPrices.length > 0) {
+                    selectedPrice = sortedPrices[0].price;
+                    selectedSize = sortedPrices[0].size;
+                    selectedSizeText = `${sortedPrices[0].size} - ₹${sortedPrices[0].price.toFixed(2)}`;
+                }
+            } else {
+                selectedPrice = parseFloat(selectedPrice);
+            }
+        }
     }
-    
-    // For products without multiple sizes, add directly to cart
-    addProductToCart(productId, product, null, null, null, button);
+
+    addProductToCart(productId, product, selectedPrice, selectedSize, selectedSizeText, button);
 }
 
-function showSizeSelectionModal(productId, product) {
-    const modal = document.getElementById('sizeModal');
-    const productNameEl = document.getElementById('modalProductName');
-    const sizeSelect = document.getElementById('sizeSelect');
-    
-    // Set product name
-    if (productNameEl) {
-        productNameEl.textContent = product.name || 'Product';
-    }
-    
-    // Clear and populate size options
-    if (sizeSelect) {
-        sizeSelect.innerHTML = '';
-        
-        // Sort prices by size (ascending order)
-        const sortedPrices = [...product.prices].sort((a, b) => {
-            const sizeA = parseInt(a.size) || 0;
-            const sizeB = parseInt(b.size) || 0;
-            return sizeA - sizeB;
-        });
-        
-        sortedPrices.forEach((priceItem, index) => {
-            const option = document.createElement('option');
-            option.value = index;
-            option.setAttribute('data-price', priceItem.price);
-            option.setAttribute('data-size', priceItem.size);
-            option.textContent = `${priceItem.size} - ₹${priceItem.price.toFixed(2)}`;
-            sizeSelect.appendChild(option);
-        });
-    }
-    
-    // Show modal
-    if (modal) {
-        modal.style.display = 'flex';
-    }
-    
-    // Store product ID for confirm button
-    if (modal) {
-        modal.dataset.productId = productId;
-    }
-}
-
-function closeSizeModal() {
-    const modal = document.getElementById('sizeModal');
-    if (modal) {
-        modal.style.display = 'none';
-    }
-}
 
 function addProductToCart(productId, product, cartPrice, selectedSize, selectedSizeText, button) {
     if (!product) {
@@ -733,47 +767,6 @@ function addProductToCart(productId, product, cartPrice, selectedSize, selectedS
     }
 }
 
-// Setup size modal listeners
-function setupSizeModalListeners() {
-    const modal = document.getElementById('sizeModal');
-    const closeBtn = document.getElementById('closeSizeModal');
-    const cancelBtn = document.getElementById('cancelSizeBtn');
-    const confirmBtn = document.getElementById('confirmAddCartBtn');
-    const overlay = modal ? modal.querySelector('.modal-overlay') : null;
-    
-    if (!modal || !closeBtn || !cancelBtn || !confirmBtn) return;
-    
-    const closeHandler = () => {
-        closeSizeModal();
-    };
-    
-    if (closeBtn) closeBtn.addEventListener('click', closeHandler);
-    if (cancelBtn) cancelBtn.addEventListener('click', closeHandler);
-    if (overlay) overlay.addEventListener('click', closeHandler);
-    
-    // Confirm button - add to cart with selected size
-    confirmBtn.addEventListener('click', () => {
-        const productId = modal.dataset.productId;
-        if (!productId) return;
-        
-        const product = products.find(p => p.id === productId || p._id === productId);
-        if (!product) return;
-        
-        const sizeSelect = document.getElementById('sizeSelect');
-        if (!sizeSelect || sizeSelect.options.length === 0) return;
-        
-        const selectedOption = sizeSelect.options[sizeSelect.selectedIndex];
-        const selectedPrice = parseFloat(selectedOption.getAttribute('data-price'));
-        const selectedSize = selectedOption.getAttribute('data-size');
-        const selectedSizeText = selectedOption.textContent.trim();
-        
-        // Add to cart with selected size
-        addProductToCart(productId, product, selectedPrice, selectedSize, selectedSizeText, null);
-        
-        // Close modal
-        closeSizeModal();
-    });
-}
 
 function renderCart() {
     const cartItems = document.getElementById('cartItems');

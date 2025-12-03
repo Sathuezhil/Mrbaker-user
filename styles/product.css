@@ -480,46 +480,83 @@ body {
     margin-left: 3px;
 }
 
-.product-size-selector {
+.product-size-buttons {
     margin-bottom: 12px;
     display: flex;
-    align-items: center;
+    flex-wrap: nowrap;
     gap: 8px;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(246, 161, 33, 0.3) transparent;
 }
 
-.product-size-selector label {
-    font-size: 0.9em;
-    font-weight: 600;
-    color: #333;
-    white-space: nowrap;
+.product-size-buttons::-webkit-scrollbar {
+    height: 4px;
 }
 
-.size-select {
-    flex: 1;
-    padding: 8px 12px;
+.product-size-buttons::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.product-size-buttons::-webkit-scrollbar-thumb {
+    background: rgba(246, 161, 33, 0.3);
+    border-radius: 2px;
+}
+
+.size-btn {
+    padding: 6px 12px;
     border: 2px solid #e0e0e0;
-    border-radius: 8px;
-    font-size: 0.9em;
-    font-weight: 500;
+    border-radius: 6px;
+    font-size: 0.8em;
+    font-weight: 600;
     color: #333;
     background: white;
     cursor: pointer;
     transition: all 0.3s ease;
     outline: none;
+    white-space: nowrap;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 60px;
+    flex-shrink: 0;
+    gap: 2px;
 }
 
-.size-select:hover {
-    border-color: #F6A121;
-}
-
-.size-select:focus {
-    border-color: #F6A121;
-    box-shadow: 0 0 0 3px rgba(246, 161, 33, 0.1);
-}
-
-.size-select option {
-    padding: 8px;
+.size-btn .size-label {
     font-size: 0.9em;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.size-btn .size-price {
+    font-size: 0.75em;
+    font-weight: 600;
+    line-height: 1;
+    opacity: 0.9;
+}
+
+.size-btn:hover {
+    border-color: #F6A121;
+    background: #fff8f0;
+    transform: translateY(-1px);
+}
+
+.size-btn.active {
+    background: linear-gradient(135deg, #F6A121 0%, #E8951F 100%);
+    color: white;
+    border-color: #F6A121;
+    box-shadow: 0 2px 8px rgba(246, 161, 33, 0.3);
+}
+
+.size-btn.active .size-label,
+.size-btn.active .size-price {
+    color: white;
+}
+
+.size-btn:active {
+    transform: scale(0.98);
 }
 
 .product-footer {
@@ -572,19 +609,6 @@ body {
     50% { transform: scale(1.1); }
 }
 
-/* Size Selection Modal */
-.size-modal {
-    display: none;
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    z-index: 1000;
-    align-items: center;
-    justify-content: center;
-}
-
 .modal-overlay {
     position: absolute;
     top: 0;
@@ -593,21 +617,6 @@ body {
     height: 100%;
     background: rgba(0, 0, 0, 0.5);
     z-index: 1001;
-}
-
-.size-modal-content {
-    background: white;
-    border-radius: 15px;
-    padding: 0;
-    max-width: 500px;
-    width: 90%;
-    max-height: 90vh;
-    overflow: hidden;
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-    z-index: 1002;
-    position: relative;
-    display: flex;
-    flex-direction: column;
 }
 
 .modal-header {
@@ -709,34 +718,6 @@ body {
     font-size: 1em;
 }
 
-.size-select-modal {
-    width: 100%;
-    padding: 12px 15px;
-    border: 2px solid #F6A121;
-    border-radius: 8px;
-    font-size: 1em;
-    font-weight: 500;
-    color: #333;
-    background: white;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    outline: none;
-}
-
-.size-select-modal:hover {
-    border-color: #E8951F;
-    box-shadow: 0 2px 8px rgba(246, 161, 33, 0.2);
-}
-
-.size-select-modal:focus {
-    border-color: #F6A121;
-    box-shadow: 0 0 0 3px rgba(246, 161, 33, 0.1);
-}
-
-.size-select-modal option {
-    padding: 10px;
-    font-size: 1em;
-}
 
 .modal-footer {
     padding: 20px 25px;
