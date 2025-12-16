@@ -355,10 +355,49 @@ async function fetchCustomerByPhone(phoneNumber) {
             return null;
         }
 
-        console.log('Fetching customer by phone number:', phoneNumber);
+        // Clean phone number - remove spaces, dashes, and other non-numeric characters
+        // Keep only digits for consistent API calls
+        let cleanPhoneNumber = phoneNumber.trim().replace(/[^0-9]/g, '');
+        
+        if (!cleanPhoneNumber || cleanPhoneNumber.length < 7) {
+            console.error('Invalid phone number format');
+            return null;
+        }
+        
+        // Normalize phone number to base 10-digit format without country codes or prefixes
+        // Based on project specification: Phone Number Normalization for User Lookup API
+        const normalizePhoneNumber = (phone) => {
+            // Remove all non-digit characters (already done above, but keeping for safety)
+            let normalized = phone.replace(/\D/g, '');
+            
+            // Strip common country codes (1-3 digits) if the number is longer than 10 digits
+            // This handles cases like +1, +44, +94, +90, etc.
+            if (normalized.length > 10) {
+                // Try to strip 1-3 digit country codes
+                for (let i = 1; i <= 3; i++) {
+                    // If stripping this many digits results in a 10-digit number, use it
+                    if (normalized.length - i === 10) {
+                        normalized = normalized.substring(i);
+                        break;
+                    }
+                }
+            }
+            
+            // If the number starts with 0 and is 11 digits, remove the leading 0
+            if (normalized.length === 11 && normalized.startsWith('0')) {
+                normalized = normalized.substring(1);
+            }
+            
+            return normalized;
+        };
+        
+        // Normalize the phone number before sending to API
+        cleanPhoneNumber = normalizePhoneNumber(cleanPhoneNumber);
+
+        console.log('Fetching customer by phone number:', cleanPhoneNumber);
         
         // Use the /user-by-phone/:phoneNumber API endpoint
-        const response = await fetch(`https://api.mr-bakers.com/api/user-by-phone/${phoneNumber}`, {
+        const response = await fetch(`https://api.mr-bakers.com/api/user-by-phone/${cleanPhoneNumber}`, {
             method: 'GET',
             headers: {
                 'Content-Type': 'application/json',
@@ -577,8 +616,9 @@ function setupPhoneModalListeners() {
                     throw new Error('Customer ID not found');
                 }
                 
-                // Step 3: Fetch loyalty points using customer _id
-                const points = await fetchLoyaltyPoints(customerId);
+                // Step 3: Use loyalty points from customer data instead of making separate API call
+                // The user-by-phone API already returns loyaltyPointsBalance in the response
+                const points = customer.loyaltyPointsBalance || 0;
                 // Always store points (even if 0)
                 currentLoyaltyPoints = points || 0;
                 

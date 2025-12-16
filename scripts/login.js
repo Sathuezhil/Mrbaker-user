@@ -29,6 +29,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
         
         console.log('Login Request Body:', JSON.stringify(requestBody));
         
+        // Use direct fetch for login to ensure compatibility
         const response = await fetch('https://api.mr-bakers.com/api/login', {
             method: 'POST',
             headers: {
