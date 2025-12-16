@@ -226,6 +226,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     renderCart();
     updateCartCount();
     await loadRecentOrders();
+    await loadLoyaltyRules();
     setupCartListeners();
     setupOrderSummaryModalListeners();
     // Loyalty points modal removed in new flow; no setup needed
@@ -937,7 +938,21 @@ function updateCartSummary() {
         return sum + (price * quantity);
     }, 0);
     const tax = subtotal * 0.05;
-    const discount = loyaltyDiscount || 0; // Use loyalty discount from points
+    const totalWithTax = subtotal + tax;
+    
+    // Calculate loyalty discount using mobile app logic
+    let discount = 0;
+    if (currentLoyaltyPoints > 0 && totalWithTax >= minOrderAmount) {
+        // Number of steps achieved
+        const steps = Math.floor((totalWithTax - minOrderAmount) / perUnitValue) + 1;
+        discount = Math.min(steps, currentLoyaltyPoints); // Cap at available points
+    }
+    
+    // Override with manually entered points if applicable
+    if (pointsToUse > 0) {
+        discount = Math.min(pointsToUse, discount, currentLoyaltyPoints);
+    }
+    
     const total = Math.max(0, subtotal + tax - discount);
 
     const subtotalEl = document.getElementById('cartSubtotal');
@@ -1079,6 +1094,18 @@ async function updateLoyaltyInfo(cleanPhone, elements) {
         currentCustomerData = null;
         currentLoyaltyPoints = 0;
         if (loyaltyBoxEl) loyaltyBoxEl.style.display = 'none';
+        
+        // Hide loyalty toggle when phone number is too short
+        const loyaltyToggleContainer = document.getElementById('loyaltyToggleContainer');
+        if (loyaltyToggleContainer) {
+            loyaltyToggleContainer.style.display = 'none';
+            // Uncheck toggle if hidden
+            const useLoyaltyToggle = document.getElementById('useLoyaltyToggle');
+            if (useLoyaltyToggle) {
+                useLoyaltyToggle.checked = false;
+            }
+        }
+        
         updateOrderSummaryTotals();
         updateCartSummary();
         return;
@@ -1090,6 +1117,18 @@ async function updateLoyaltyInfo(cleanPhone, elements) {
         if (!customer) {
             // Customer not found - hide loyalty box
             if (loyaltyBoxEl) loyaltyBoxEl.style.display = 'none';
+            
+            // Hide loyalty toggle when customer not found
+            const loyaltyToggleContainer = document.getElementById('loyaltyToggleContainer');
+            if (loyaltyToggleContainer) {
+                loyaltyToggleContainer.style.display = 'none';
+                // Uncheck toggle if hidden
+                const useLoyaltyToggle = document.getElementById('useLoyaltyToggle');
+                if (useLoyaltyToggle) {
+                    useLoyaltyToggle.checked = false;
+                }
+            }
+            
             currentCustomerData = null;
             currentLoyaltyPoints = 0;
             loyaltyDiscount = 0;
@@ -1111,12 +1150,18 @@ async function updateLoyaltyInfo(cleanPhone, elements) {
         const points = customer.loyaltyPointsBalance || 0;
         console.log('Using loyalty points from customer data:', points);
 
-        // Step 4: Calculate discount from points (will be updated when user enters points to use)
+        // Step 4: Calculate discount using the same logic as mobile app
         const subtotal = cart.items.reduce((sum, i) => sum + (i.productId.price * i.quantity), 0);
         const tax = subtotal * 0.05;
-        const totalBeforeDiscount = subtotal + tax;
-        // Initial discount is 0, will be calculated when user enters points
-        const discount = 0;
+        const totalWithTax = subtotal + tax;
+        
+        // Calculate loyalty discount using mobile app logic
+        let discount = 0;
+        if (points > 0 && totalWithTax >= minOrderAmount) {
+            // Number of steps achieved
+            const steps = Math.floor((totalWithTax - minOrderAmount) / perUnitValue) + 1;
+            discount = Math.min(steps, points); // Cap discount at available points
+        }
 
         // Step 5: Build friendly customer name
         let customerName = 'Customer';
@@ -1135,6 +1180,25 @@ async function updateLoyaltyInfo(cleanPhone, elements) {
         if (loyaltyPointsEl) loyaltyPointsEl.textContent = points || 0;
         if (loyaltyDiscountEl) loyaltyDiscountEl.textContent = `₹${discount.toFixed(2)}`;
         if (loyaltyBoxEl) loyaltyBoxEl.style.display = 'block';
+        
+        // Show/hide loyalty toggle based on points and minimum order amount
+        const loyaltyToggleContainer = document.getElementById('loyaltyToggleContainer');
+        const cartSubtotal = cart.items.reduce((sum, i) => sum + (i.productId.price * i.quantity), 0);
+        const cartTotalWithTax = cartSubtotal + (cartSubtotal * 0.05);
+        
+        if (loyaltyToggleContainer) {
+            // Show toggle if customer has points and meets minimum order amount
+            if (points > 0 && cartTotalWithTax >= minOrderAmount) {
+                loyaltyToggleContainer.style.display = 'flex';
+            } else {
+                loyaltyToggleContainer.style.display = 'none';
+                // Uncheck toggle if hidden
+                const useLoyaltyToggle = document.getElementById('useLoyaltyToggle');
+                if (useLoyaltyToggle) {
+                    useLoyaltyToggle.checked = false;
+                }
+            }
+        }
 
         // Step 7: Store in global variables
         currentCustomerData = customer;
@@ -1161,6 +1225,18 @@ async function updateLoyaltyInfo(cleanPhone, elements) {
     } catch (error) {
         console.error('Error in updateLoyaltyInfo:', error);
         if (loyaltyBoxEl) loyaltyBoxEl.style.display = 'none';
+        
+        // Hide loyalty toggle on error
+        const loyaltyToggleContainer = document.getElementById('loyaltyToggleContainer');
+        if (loyaltyToggleContainer) {
+            loyaltyToggleContainer.style.display = 'none';
+            // Uncheck toggle if hidden
+            const useLoyaltyToggle = document.getElementById('useLoyaltyToggle');
+            if (useLoyaltyToggle) {
+                useLoyaltyToggle.checked = false;
+            }
+        }
+        
         currentCustomerData = null;
         currentLoyaltyPoints = 0;
         loyaltyDiscount = 0;
@@ -1209,14 +1285,21 @@ function setupCartListeners() {
             const maxPoints = currentLoyaltyPoints || 0;
             const subtotal = cart.items.reduce((sum, i) => sum + (i.productId.price * i.quantity), 0);
             const tax = subtotal * 0.05;
-            const totalBeforeDiscount = subtotal + tax;
+            const totalWithTax = subtotal + tax;
             
-            // Limit points to available points and total amount
-            const maxUsablePoints = Math.min(maxPoints, totalBeforeDiscount);
-            const pointsToUseValue = Math.min(enteredPoints, maxUsablePoints);
+            // Calculate maximum redeemable points using mobile app logic
+            let maxRedeemablePoints = 0;
+            if (maxPoints > 0 && totalWithTax >= minOrderAmount) {
+                // Number of steps achieved
+                const steps = Math.floor((totalWithTax - minOrderAmount) / perUnitValue) + 1;
+                maxRedeemablePoints = Math.min(steps, maxPoints); // Cap at available points
+            }
             
-            if (enteredPoints > maxUsablePoints) {
-                e.target.value = maxUsablePoints;
+            // Limit entered points to maximum redeemable points
+            const pointsToUseValue = Math.min(enteredPoints, maxRedeemablePoints);
+            
+            if (enteredPoints > maxRedeemablePoints) {
+                e.target.value = maxRedeemablePoints;
             }
             
             pointsToUse = pointsToUseValue;
@@ -1230,6 +1313,15 @@ function setupCartListeners() {
             
             // Update cart summary
             updateCartSummary();
+        });
+    }
+    
+    // Setup loyalty toggle listener
+    const useLoyaltyToggle = document.getElementById('useLoyaltyToggle');
+    if (useLoyaltyToggle) {
+        useLoyaltyToggle.addEventListener('change', () => {
+            updateCartSummary();
+            updateOrderSummaryTotals();
         });
     }
 }
@@ -1805,7 +1897,44 @@ async function fetchLoyaltyPointsFallback(customerId, userToken) {
     }
 }
 
-// Fetch points rule by key (GET /api/points-rules/rule/:key)
+// Global variables for loyalty rules
+let minOrderAmount = 0;
+let perUnitValue = 0;
+
+// Fetch minimum order amount for loyalty redemption
+async function getMinOrderAmount() {
+    try {
+        const rule = await fetchPointsRuleByKey('min_order_ammount');
+        return rule?.value || 0;
+    } catch (error) {
+        console.error('Error fetching min order amount:', error);
+        return 0;
+    }
+}
+
+// Fetch per unit value for loyalty calculation
+async function getPerUnitValue() {
+    try {
+        const rule = await fetchPointsRuleByKey('per_unit');
+        return rule?.value || 0;
+    } catch (error) {
+        console.error('Error fetching per unit value:', error);
+        return 0;
+    }
+}
+
+// Load loyalty rules on app initialization
+async function loadLoyaltyRules() {
+    try {
+        minOrderAmount = await getMinOrderAmount();
+        perUnitValue = await getPerUnitValue();
+        console.log('Loyalty rules loaded:', { minOrderAmount, perUnitValue });
+    } catch (error) {
+        console.error('Error loading loyalty rules:', error);
+    }
+}
+
+// Fetch points rule by key (GET /api/rule/:key)
 async function fetchPointsRuleByKey(key) {
     try {
         const userToken = currentUser?.token;
@@ -1814,7 +1943,7 @@ async function fetchPointsRuleByKey(key) {
             return null;
         }
 
-        const response = await fetch(`https://api.mr-bakers.com/api/points-rules/rule/${encodeURIComponent(key)}`, {
+        const response = await fetch(`https://api.mr-bakers.com/api/rule/${encodeURIComponent(key)}`, {
             method: 'GET',
             headers: {
                 'Content-Type': 'application/json',
@@ -1837,7 +1966,7 @@ async function fetchPointsRuleByKey(key) {
     }
 }
 
-// Fetch all points rules (GET /api/points-rules/rules)
+// Fetch all points rules (GET /api/rules)
 async function fetchAllPointsRules() {
     try {
         const userToken = currentUser?.token;
@@ -1846,7 +1975,7 @@ async function fetchAllPointsRules() {
             return [];
         }
 
-        const response = await fetch('https://api.mr-bakers.com/api/points-rules/rules', {
+        const response = await fetch('https://api.mr-bakers.com/api/rules', {
             method: 'GET',
             headers: {
                 'Content-Type': 'application/json',
@@ -1871,7 +2000,7 @@ async function fetchAllPointsRules() {
     }
 }
 
-// Update a points rule by key (PUT /api/points-rules/rules/:key)
+// Update a points rule by key (PUT /api/rules/:key)
 async function updatePointsRuleByKey(key, updatePayload) {
     try {
         const userToken = currentUser?.token;
@@ -1880,7 +2009,7 @@ async function updatePointsRuleByKey(key, updatePayload) {
             return null;
         }
 
-        const response = await fetch(`https://api.mr-bakers.com/api/points-rules/rules/${encodeURIComponent(key)}`, {
+        const response = await fetch(`https://api.mr-bakers.com/api/rules/${encodeURIComponent(key)}`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
@@ -1913,10 +2042,19 @@ function updateOrderSummaryTotals() {
     const subtotal = cart.items.reduce((sum, item) =>
         sum + (item.productId.price * item.quantity), 0);
     const tax = subtotal * 0.05;
+    const totalWithTax = subtotal + tax;
+    
+    // Calculate loyalty discount using mobile app logic
+    let calculatedDiscount = 0;
+    if (currentLoyaltyPoints > 0 && totalWithTax >= minOrderAmount) {
+        // Number of steps achieved
+        const steps = Math.floor((totalWithTax - minOrderAmount) / perUnitValue) + 1;
+        calculatedDiscount = Math.min(steps, currentLoyaltyPoints); // Cap at available points
+    }
     
     const useLoyaltyToggle = document.getElementById('useLoyaltyToggle');
     const appliedDiscount = (useLoyaltyToggle && useLoyaltyToggle.checked) 
-        ? loyaltyDiscount 
+        ? calculatedDiscount 
         : 0;
     
     const finalTotal = Math.max(0, subtotal + tax - appliedDiscount);
@@ -2760,17 +2898,26 @@ async function finalizeOrderWithLoyalty() {
 
         const tax = subtotal * 0.05;
         
+        // Calculate loyalty discount using mobile app logic
+        const totalWithTax = subtotal + tax;
+        let calculatedDiscount = 0;
+        if (currentLoyaltyPoints > 0 && totalWithTax >= minOrderAmount) {
+            // Number of steps achieved
+            const steps = Math.floor((totalWithTax - minOrderAmount) / perUnitValue) + 1;
+            calculatedDiscount = Math.min(steps, currentLoyaltyPoints); // Cap at available points
+        }
+        
         // Use pointsToUse from cart input (or from order summary modal toggle)
         const useLoyaltyToggle = document.getElementById('useLoyaltyToggle');
         let finalDiscount = 0;
         
         // Check if points are entered in cart section
         if (pointsToUse > 0) {
-            // Use points from cart input
-            finalDiscount = Math.min(pointsToUse, currentLoyaltyPoints, subtotal + tax);
+            // Use points from cart input, capped at calculated discount
+            finalDiscount = Math.min(pointsToUse, calculatedDiscount);
         } else if (useLoyaltyToggle && useLoyaltyToggle.checked) {
-            // Fallback to order summary modal toggle
-            finalDiscount = Math.min(loyaltyDiscount, currentLoyaltyPoints, subtotal + tax);
+            // Use calculated discount from mobile app logic
+            finalDiscount = calculatedDiscount;
         }
 
         // Calculate final total with discount applied
