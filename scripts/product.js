@@ -1106,10 +1106,10 @@ async function updateLoyaltyInfo(cleanPhone, elements) {
             return;
         }
 
-        // Step 3: Fetch loyalty points for this customer
-        console.log('Fetching loyalty points for customer ID:', customerId);
-        const points = await fetchLoyaltyPoints(customerId);
-        console.log('Fetched loyalty points:', points);
+        // Step 3: Use loyalty points from customer data instead of making separate API call
+        // The user-by-phone API already returns loyaltyPointsBalance in the response
+        const points = customer.loyaltyPointsBalance || 0;
+        console.log('Using loyalty points from customer data:', points);
 
         // Step 4: Calculate discount from points (will be updated when user enters points to use)
         const subtotal = cart.items.reduce((sum, i) => sum + (i.productId.price * i.quantity), 0);
@@ -1602,85 +1602,61 @@ async function fetchCustomerByPhone(phoneNumber) {
             return null;
         }
 
-        if (!phoneNumber || phoneNumber.trim() === '') {
-            console.error('Phone number is required');
-            return null;
+        // Use window.apiClient if available, otherwise fall back to direct fetch
+        if (typeof window.apiClient !== 'undefined' && window.apiClient.getCustomerByPhone) {
+            // Use the new apiClient through window object
+            try {
+                // Temporarily set token for this request
+                const originalUser = sessionStorage.getItem('user');
+                sessionStorage.setItem('user', JSON.stringify({ token: userToken }));
+                
+                const response = await window.apiClient.getCustomerByPhone(phoneNumber);
+                
+                // Restore original user data
+                if (originalUser) {
+                    sessionStorage.setItem('user', originalUser);
+                } else {
+                    sessionStorage.removeItem('user');
+                }
+                
+                if (!response.success) {
+                    if (response.error && response.error.includes('Session expired')) {
+                        alert('Session expired. Please login again.');
+                        sessionStorage.removeItem('user');
+                        window.location.href = 'index.html';
+                        return null;
+                    }
+                    console.error('Failed to fetch customer:', response.error);
+                    return null;
+                }
+
+                const data = response.data;
+            } catch (apiClientError) {
+                console.error('apiClient failed, falling back to direct fetch:', apiClientError);
+                // Fall back to direct fetch if apiClient fails
+                return await fetchCustomerByPhoneFallback(phoneNumber, userToken);
+            }
+        } else {
+            // Fall back to direct fetch if apiClient is not available
+            return await fetchCustomerByPhoneFallback(phoneNumber, userToken);
         }
-
-        // Clean phone number - remove spaces, dashes, and other non-numeric characters
-        // Keep only digits for consistent API calls
-        const cleanPhoneNumber = phoneNumber.trim().replace(/[^0-9]/g, '');
-        
-        if (!cleanPhoneNumber || cleanPhoneNumber.length < 7) {
-            console.error('Invalid phone number format');
-            return null;
-        }
-
-        console.log('Fetching customer by phone number:', cleanPhoneNumber);
-        console.log('Original phone number:', phoneNumber);
-        
-        // Use the /user-by-phone/:phoneNumber API endpoint
-        // Router: router.get('/user-by-phone/:phoneNumber', requireAuth, allowRoles('staff', 'admin', 'superadmin'), getUserByPhoneNumber);
-        const url = `https://api.mr-bakers.com/api/user-by-phone/${encodeURIComponent(cleanPhoneNumber)}`;
-        
-        console.log('API URL:', url);
-        
-        const response = await fetch(url, {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${userToken}`,
-                'Accept': 'application/json'
-            }
-        });
-
-        console.log('User-by-phone API response status:', response.status);
-
-        if (!response.ok) {
-            if (response.status === 401) {
-                const errorText = await response.text();
-                console.error('401 Unauthorized - Token may be expired:', errorText);
-                alert('Session expired. Please login again.');
-                sessionStorage.removeItem('user');
-                window.location.href = 'index.html';
-                return null;
-            }
-            if (response.status === 403) {
-                const errorText = await response.text();
-                console.error('403 Forbidden - Insufficient permissions:', errorText);
-                return null;
-            }
-            if (response.status === 404) {
-                console.log(`Customer not found with phone: ${cleanPhoneNumber}`);
-                // Return null - this is expected if customer doesn't exist
-                // The modal will show "Customer not found" message
-                return null;
-            }
-            const errorText = await response.text();
-            console.error(`Failed to fetch customer: ${response.status}`, errorText);
-            return null;
-        }
-
-        const data = await response.json();
         console.log('User-by-phone API response data:', data);
         
         // Handle different response formats
         let customer = null;
-        if (data.data) {
-            customer = data.data;
-        } else if (data.user) {
-            customer = data.user;
-        } else if (data._id || data.id) {
+        if (data && (data._id || data.id)) {
             customer = data;
+        } else if (data && data.data && (data.data._id || data.data.id)) {
+            customer = data.data;
         }
 
-        // Return customer if found (don't check role - show customer info regardless)
+        // Return customer if found
         if (customer) {
             console.log('Customer found via API:', customer);
             return customer;
         }
 
-        console.log(`Customer not found with phone: ${cleanPhoneNumber}`);
+        console.log(`Customer not found with phone: ${phoneNumber}`);
         return null;
     } catch (error) {
         console.error('Error fetching customer by phone:', error);
@@ -1701,7 +1677,91 @@ async function fetchLoyaltyPoints(customerId) {
             return 0;
         }
 
-        console.log('Fetching loyalty points for customer ID:', customerId);
+        // Use window.apiClient if available, otherwise fall back to direct fetch
+        if (typeof window.apiClient !== 'undefined' && window.apiClient.getLoyaltyPoints) {
+            // Use the new apiClient through window object
+            try {
+                // Temporarily set token for this request
+                const originalUser = sessionStorage.getItem('user');
+                sessionStorage.setItem('user', JSON.stringify({ token: userToken }));
+                
+                const response = await window.apiClient.getLoyaltyPoints(customerId);
+                
+                // Restore original user data
+                if (originalUser) {
+                    sessionStorage.setItem('user', originalUser);
+                } else {
+                    sessionStorage.removeItem('user');
+                }
+                
+                if (!response.success) {
+                    if (response.error && response.error.includes('Session expired')) {
+                        alert('Session expired. Please login again.');
+                        sessionStorage.removeItem('user');
+                        window.location.href = 'index.html';
+                        return 0;
+                    }
+                    console.error('Failed to fetch loyalty points:', response.error);
+                    return 0;
+                }
+
+                const data = response.data;
+            } catch (apiClientError) {
+                console.error('apiClient failed, falling back to direct fetch:', apiClientError);
+                // Fall back to direct fetch if apiClient fails
+                return await fetchLoyaltyPointsFallback(customerId, userToken);
+            }
+        } else {
+            // Fall back to direct fetch if apiClient is not available
+            return await fetchLoyaltyPointsFallback(customerId, userToken);
+        }
+        console.log('Loyalty points API raw response:', data);
+
+        // Handle different response formats from CRUD API:
+        // 1) Direct array: [{ _id, user, points, ... }]
+        // 2) { data: [{ _id, user, points, ... }] }
+        // 3) Single object: { _id, user, points, ... }
+        // 4) { data: { _id, user, points, ... } }
+        let points = 0;
+
+        if (Array.isArray(data) && data.length > 0) {
+            // Array format - get first record's points
+            points = Number(data[0].points) || 0;
+            console.log('Extracted points from array:', points);
+        } else if (Array.isArray(data.data) && data.data.length > 0) {
+            // { data: [...] } format
+            points = Number(data.data[0].points) || 0;
+            console.log('Extracted points from data array:', points);
+        } else if (typeof data.points !== 'undefined') {
+            // Single object with points property
+            points = Number(data.points) || 0;
+            console.log('Extracted points from object:', points);
+        } else if (data.data && typeof data.data.points !== 'undefined') {
+            // { data: { points: ... } } format
+            points = Number(data.data.points) || 0;
+            console.log('Extracted points from nested data:', points);
+        } else {
+            console.warn('Unexpected loyalty points response format:', data);
+            points = 0;
+        }
+
+        console.log('Final loyalty points value:', points);
+        return points;
+    } catch (error) {
+        console.error('Error fetching loyalty points:', error);
+        return 0; // Return 0 on error to allow order to continue
+    }
+}
+
+// Fallback function for fetching loyalty points using direct fetch
+async function fetchLoyaltyPointsFallback(customerId, userToken) {
+    try {
+        if (!customerId) {
+            console.error('Customer ID is required for loyalty points fetch');
+            return 0;
+        }
+
+        console.log('Fetching loyalty points for customer ID (fallback):', customerId);
 
         // Use /loyalty-points with user query param
         // Backend must honour ?user query param for staff/admin roles
@@ -1738,39 +1798,9 @@ async function fetchLoyaltyPoints(customerId) {
 
         const data = await response.json();
         console.log('Loyalty points API raw response:', data);
-
-        // Handle different response formats from CRUD API:
-        // 1) Direct array: [{ _id, user, points, ... }]
-        // 2) { data: [{ _id, user, points, ... }] }
-        // 3) Single object: { _id, user, points, ... }
-        // 4) { data: { _id, user, points, ... } }
-        let points = 0;
-
-        if (Array.isArray(data) && data.length > 0) {
-            // Array format - get first record's points
-            points = Number(data[0].points) || 0;
-            console.log('Extracted points from array:', points);
-        } else if (Array.isArray(data.data) && data.data.length > 0) {
-            // { data: [...] } format
-            points = Number(data.data[0].points) || 0;
-            console.log('Extracted points from data array:', points);
-        } else if (typeof data.points !== 'undefined') {
-            // Single object with points property
-            points = Number(data.points) || 0;
-            console.log('Extracted points from object:', points);
-        } else if (data.data && typeof data.data.points !== 'undefined') {
-            // { data: { points: ... } } format
-            points = Number(data.data.points) || 0;
-            console.log('Extracted points from nested data:', points);
-        } else {
-            console.warn('Unexpected loyalty points response format:', data);
-            points = 0;
-        }
-
-        console.log('Final loyalty points value:', points);
-        return points;
+        return data;
     } catch (error) {
-        console.error('Error fetching loyalty points:', error);
+        console.error('Error fetching loyalty points (fallback):', error);
         return 0; // Return 0 on error to allow order to continue
     }
 }
@@ -1911,107 +1941,39 @@ async function redeemLoyaltyPoints(customerId, pointsToRedeem, posOrderId) {
             return false;
         }
 
-        if (!customerId || !pointsToRedeem || pointsToRedeem <= 0) {
-            console.log('No points to redeem');
-            return true; // Not an error, just nothing to do
-        }
-
-        if (!posOrderId) {
-            console.error('POS Order ID is required to redeem points');
-            return false;
-        }
-
-        console.log(`Redeeming ${pointsToRedeem} points for customer ${customerId} on order ${posOrderId}`);
-
-        // Step 1: Create points-redeemed record
-        const redeemedData = {
-            user: customerId,
-            points: pointsToRedeem,
-            type: 'pos',
-            posOrder: posOrderId
-        };
-
-        const redeemedResponse = await fetch('https://api.mr-bakers.com/api/points-redeemed', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${userToken}`,
-                'Accept': 'application/json'
-            },
-            body: JSON.stringify(redeemedData)
-        });
-
-        if (!redeemedResponse.ok) {
-            const errorText = await redeemedResponse.text();
-            console.error('Failed to create points-redeemed record:', redeemedResponse.status, errorText);
-            return false;
-        }
-
-        const redeemedResult = await redeemedResponse.json();
-        console.log('Points redeemed record created:', redeemedResult);
-
-        // Step 2: Update customer's loyalty points balance (deduct redeemed points)
-        // Fetch current points
-        const currentPoints = await fetchLoyaltyPoints(customerId);
-        const newPointsBalance = Math.max(0, currentPoints - pointsToRedeem);
-
-        // Update loyalty points - try PUT/PATCH to update existing record
-        // First, get the loyalty points record ID
-        const loyaltyResponse = await fetch(`https://api.mr-bakers.com/api/loyalty-points?user=${encodeURIComponent(customerId)}`, {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${userToken}`,
-                'Accept': 'application/json'
-            }
-        });
-
-        if (loyaltyResponse.ok) {
-            const loyaltyData = await loyaltyResponse.json();
-            let loyaltyRecord = null;
-
-            // Find the loyalty record
-            if (Array.isArray(loyaltyData) && loyaltyData.length > 0) {
-                loyaltyRecord = loyaltyData[0];
-            } else if (Array.isArray(loyaltyData.data) && loyaltyData.data.length > 0) {
-                loyaltyRecord = loyaltyData.data[0];
-            } else if (loyaltyData._id || loyaltyData.id) {
-                loyaltyRecord = loyaltyData;
-            }
-
-            if (loyaltyRecord && (loyaltyRecord._id || loyaltyRecord.id)) {
-                const loyaltyId = loyaltyRecord._id || loyaltyRecord.id;
+        // Use window.apiClient if available, otherwise fall back to direct fetch
+        if (typeof window.apiClient !== 'undefined' && window.apiClient.redeemLoyaltyPoints) {
+            // Use the new apiClient through window object
+            try {
+                // Temporarily set token for this request
+                const originalUser = sessionStorage.getItem('user');
+                sessionStorage.setItem('user', JSON.stringify({ token: userToken }));
                 
-                // Update the loyalty points record (if backend supports update)
-                // Note: Backend may have update disabled, so this might fail
-                // In that case, the points-redeemed record is still created for tracking
-                try {
-                    const updateResponse = await fetch(`https://api.mr-bakers.com/api/loyalty-points/${loyaltyId}`, {
-                        method: 'PUT',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${userToken}`,
-                            'Accept': 'application/json'
-                        },
-                        body: JSON.stringify({ points: newPointsBalance })
-                    });
-
-                    if (updateResponse.ok) {
-                        console.log(`Loyalty points updated: ${currentPoints} -> ${newPointsBalance}`);
-                    } else {
-                        console.warn('Could not update loyalty points balance (update may be disabled in backend)');
-                        console.warn('Points-redeemed record created for tracking');
-                    }
-                } catch (updateError) {
-                    console.warn('Error updating loyalty points:', updateError);
-                    console.warn('Points-redeemed record created for tracking');
+                const response = await window.apiClient.redeemLoyaltyPoints(customerId, pointsToRedeem, posOrderId);
+                
+                // Restore original user data
+                if (originalUser) {
+                    sessionStorage.setItem('user', originalUser);
+                } else {
+                    sessionStorage.removeItem('user');
                 }
-            } else {
-                console.warn('Loyalty points record not found - points-redeemed record created for tracking');
-            }
-        }
+                
+                if (!response.success) {
+                    console.error('Failed to redeem loyalty points:', response.error);
+                    return false;
+                }
 
-        return true;
+                console.log('Points redeemed record created:', response.data);
+                return true;
+            } catch (apiClientError) {
+                console.error('apiClient failed, falling back to direct fetch:', apiClientError);
+                // Fall back to direct fetch if apiClient fails
+                return await redeemLoyaltyPointsFallback(customerId, pointsToRedeem, posOrderId, userToken);
+            }
+        } else {
+            // Fall back to direct fetch if apiClient is not available
+            return await redeemLoyaltyPointsFallback(customerId, pointsToRedeem, posOrderId, userToken);
+        }
     } catch (error) {
         console.error('Error redeeming loyalty points:', error);
         return false;
@@ -2138,6 +2100,59 @@ async function earnLoyaltyPoints(customerId, purchaseAmount, posOrderId) {
         console.error('Error earning loyalty points:', error);
         // Return true to not block order completion even if points earning fails
         return true;
+    }
+}
+
+// Fallback function for redeeming loyalty points using direct fetch
+async function redeemLoyaltyPointsFallback(customerId, pointsToRedeem, posOrderId, userToken) {
+    try {
+        if (!customerId) {
+            console.error('No customer ID found for redeeming points');
+            return false;
+        }
+
+        if (!pointsToRedeem || pointsToRedeem <= 0) {
+            console.log('No points to redeem');
+            return true; // Not an error, just nothing to do
+        }
+
+        if (!posOrderId) {
+            console.error('POS Order ID is required to redeem points');
+            return false;
+        }
+
+        console.log(`Redeeming ${pointsToRedeem} points for customer ${customerId} on order ${posOrderId}`);
+
+        // Step 1: Create points-redeemed record
+        const redeemedData = {
+            user: customerId,
+            points: pointsToRedeem,
+            type: 'pos',
+            posOrder: posOrderId
+        };
+
+        const redeemedResponse = await fetch('https://api.mr-bakers.com/api/points-redeemed', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${userToken}`,
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify(redeemedData)
+        });
+
+        if (!redeemedResponse.ok) {
+            const errorText = await redeemedResponse.text();
+            console.error('Failed to create points-redeemed record:', redeemedResponse.status, errorText);
+            return false;
+        }
+
+        const redeemedResult = await redeemedResponse.json();
+        console.log('Points redeemed record created:', redeemedResult);
+        return true;
+    } catch (error) {
+        console.error('Error redeeming loyalty points (fallback):', error);
+        return false;
     }
 }
 
@@ -2446,9 +2461,9 @@ async function showLoyaltyPointsModal(phoneNumber) {
         if (customer) {
             currentCustomerData = customer;
             
-            // Fetch loyalty points
-            const customerId = customer._id;
-            const points = await fetchLoyaltyPoints(customerId);
+            // Use loyalty points from customer data instead of making separate API call
+            // The user-by-phone API already returns loyaltyPointsBalance in the response
+            const points = customer.loyaltyPointsBalance || 0;
             currentLoyaltyPoints = points || 0;
             
             // Calculate discount
@@ -2834,11 +2849,163 @@ async function finalizeOrderWithLoyalty() {
     } catch (err) {
         console.error("Finalize Order Error:", err);
         // If order save failed (e.g., token invalid), still allow bill printing
-        alert("Order save failed on server (e.g., session expired), but you can still print the bill.");
-        // Show bill based on current cart so user can print
-        generateBillPreview(null);
     }
+};
+
+// Fallback function for fetching customer by phone using direct fetch
+async function fetchCustomerByPhoneFallback(phoneNumber, userToken) {
+    // Clean phone number - remove spaces, dashes, and other non-numeric characters
+    // Keep only digits for consistent API calls
+    const cleanPhoneNumber = phoneNumber.trim().replace(/[^0-9]/g, '');
     
-    // In both success and error cases above, after bill is shown and eventually closed,
-    // cart will be cleared by closeBillModal()
+    if (!cleanPhoneNumber || cleanPhoneNumber.length < 7) {
+        console.error('Invalid phone number format');
+        return null;
+    }
+
+    console.log('Fetching customer by phone number (fallback):', cleanPhoneNumber);
+    console.log('Original phone number:', phoneNumber);
+    
+    // Use the /user-by-phone/:phoneNumber API endpoint
+    // Router: router.get('/user-by-phone/:phoneNumber', requireAuth, allowRoles('staff', 'admin', 'superadmin'), getUserByPhoneNumber);
+    const url = `https://api.mr-bakers.com/api/user-by-phone/${cleanPhoneNumber}`;
+    
+    console.log('API URL:', url);
+    
+    const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${userToken}`,
+            'Accept': 'application/json'
+        }
+    });
+
+    console.log('User-by-phone API response status:', response.status);
+
+    if (!response.ok) {
+        if (response.status === 401) {
+            const errorText = await response.text();
+            console.error('401 Unauthorized - Token may be expired:', errorText);
+            alert('Session expired. Please login again.');
+            sessionStorage.removeItem('user');
+            window.location.href = 'index.html';
+            return null;
+        }
+        if (response.status === 403) {
+            const errorText = await response.text();
+            console.error('403 Forbidden - Insufficient permissions:', errorText);
+            return null;
+        }
+        if (response.status === 404) {
+            console.log(`Customer not found with phone: ${cleanPhoneNumber}`);
+            // Return null - this is expected if customer doesn't exist
+            // The modal will show "Customer not found" message
+            return null;
+        }
+        const errorText = await response.text();
+        console.error(`Failed to fetch customer: ${response.status}`, errorText);
+        return null;
+    }
+
+    const data = await response.json();
+    console.log('User-by-phone API response data:', data);
+    
+    // Handle different response formats
+    let customer = null;
+    if (data.data) {
+        customer = data.data;
+    } else if (data.user) {
+        customer = data.user;
+    } else if (data._id || data.id) {
+        customer = data;
+    }
+
+    // Return customer if found (don't check role - show customer info regardless)
+    if (customer) {
+        console.log('Customer found via API:', customer);
+        return customer;
+    }
+
+    console.log(`Customer not found with phone: ${cleanPhoneNumber}`);
+    return null;
+}
+
+// Fallback function for fetching customer by phone using direct fetch
+async function fetchCustomerByPhoneFallback(phoneNumber, userToken) {
+    // Clean phone number - remove spaces, dashes, and other non-numeric characters
+    // Keep only digits for consistent API calls
+    const cleanPhoneNumber = phoneNumber.trim().replace(/[^0-9]/g, '');
+    
+    if (!cleanPhoneNumber || cleanPhoneNumber.length < 7) {
+        console.error('Invalid phone number format');
+        return null;
+    }
+
+    console.log('Fetching customer by phone number (fallback):', cleanPhoneNumber);
+    console.log('Original phone number:', phoneNumber);
+    
+    // Use the /user-by-phone/:phoneNumber API endpoint
+    // Router: router.get('/user-by-phone/:phoneNumber', requireAuth, allowRoles('staff', 'admin', 'superadmin'), getUserByPhoneNumber);
+    const url = `https://api.mr-bakers.com/api/user-by-phone/${cleanPhoneNumber}`;
+    
+    console.log('API URL:', url);
+    
+    const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${userToken}`,
+            'Accept': 'application/json'
+        }
+    });
+
+    console.log('User-by-phone API response status:', response.status);
+
+    if (!response.ok) {
+        if (response.status === 401) {
+            const errorText = await response.text();
+            console.error('401 Unauthorized - Token may be expired:', errorText);
+            alert('Session expired. Please login again.');
+            sessionStorage.removeItem('user');
+            window.location.href = 'index.html';
+            return null;
+        }
+        if (response.status === 403) {
+            const errorText = await response.text();
+            console.error('403 Forbidden - Insufficient permissions:', errorText);
+            return null;
+        }
+        if (response.status === 404) {
+            console.log(`Customer not found with phone: ${cleanPhoneNumber}`);
+            // Return null - this is expected if customer doesn't exist
+            // The modal will show "Customer not found" message
+            return null;
+        }
+        const errorText = await response.text();
+        console.error(`Failed to fetch customer: ${response.status}`, errorText);
+        return null;
+    }
+
+    const data = await response.json();
+    console.log('User-by-phone API response data:', data);
+    
+    // Handle different response formats
+    let customer = null;
+    if (data.data) {
+        customer = data.data;
+    } else if (data.user) {
+        customer = data.user;
+    } else if (data._id || data.id) {
+        customer = data;
+    }
+
+    // Return customer if found (don't check role - show customer info regardless)
+    if (customer) {
+        console.log('Customer found via API:', customer);
+        return customer;
+    }
+
+    console.log(`Customer not found with phone: ${cleanPhoneNumber}`);
+    return null;
 }

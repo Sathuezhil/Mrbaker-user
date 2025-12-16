@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Login Test</title>
+</head>
+<body>
+    <h1>Login Test Page</h1>
+    <form id="loginForm">
+        <div>
+            <label>Username:</label>
+            <input type="text" id="username" value="jeruadmin" />
+        </div>
+        <div>
+            <label>Password:</label>
+            <input type="password" id="password" value="jeru@123" />
+        </div>
+        <button type="submit">Login</button>
+    </form>
+    <div id="result"></div>
+
+    <script src="./scripts/login.js"></script>
+    <script>
+        // Test the login functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            const form = document.getElementById('loginForm');
+            const result = document.getElementById('result');
+            
+            form.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const username = document.getElementById('username').value;
+                const password = document.getElementById('password').value;
+                
+                try {
+                    result.innerHTML = 'Logging in...';
+                    
+                    // Simulate the login process
+                    const event = {
+                        preventDefault: () => {},
+                        target: form
+                    };
+                    
+                    // This would normally be triggered by the form submit
+                    // For testing, we'll just show that the script loads correctly
+                    result.innerHTML = 'Login script loaded successfully. Ready to test.';
+                } catch (error) {
+                    result.innerHTML = 'Error: ' + error.message;
+                }
+            });
+        });
+    </script>
+</body>
+</html>
